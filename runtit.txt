@@ -22,3 +22,19 @@ curl http://localhost:9200/_cluster/health
 
 Now let's start the RAG service:
 docker compose -f docker-compose.dev.yml up -d rag_service
+or
+docker compose -f docker-compose.dev.yml up -d rag_service --force-recreate
+docker compose -f docker-compose.dev.yml ps
+
+Let's verify Grafana is accessible: http://localhost:3000
+Jaeger UI at http://localhost:16686
+
+Prometheus: http://localhost:9091
+
+All supporting services are running successfully:
+Elasticsearch (port 9200) - for document storage and search
+MongoDB (port 27017) - for metadata storage
+Redis (port 6379) - for caching
+Jaeger (port 16686) - for distributed tracing
+Prometheus (port 9091) - for metrics collection
+Grafana (port 3000) - for monitoring visualization

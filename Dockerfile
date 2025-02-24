@@ -1,44 +1,40 @@
-# Use multi-stage build for smaller final image
-FROM python:3.11-slim AS builder
+FROM python:3.11-slim
 
 # Set working directory
 WORKDIR /app
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
     curl \
     && rm -rf /var/lib/apt/lists/*
-
-# Install Python dependencies
-COPY pyproject.toml ./
-RUN pip install --no-cache-dir poetry \
-    && poetry config virtualenvs.create false \
-    && poetry install --only main --no-interaction --no-ansi
-
-# Final stage
-FROM python:3.11-slim
-
-# Set working directory
-WORKDIR /app
 
 # Create non-root user
 RUN useradd -m -u 1000 rag_user
 
-# Install runtime dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
+# Copy application files
+COPY pyproject.toml ./
+COPY README.md ./
+COPY rag_service ./rag_service
+COPY config /app/config
 
-# Copy Python packages from builder
-COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+# Install Python dependencies
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir . && \
+    pip install --no-cache-dir \
+        uvicorn \
+        opentelemetry-api \
+        opentelemetry-sdk \
+        opentelemetry-exporter-otlp \
+        opentelemetry-instrumentation \
+        opentelemetry-instrumentation-fastapi \
+        opentelemetry-instrumentation-requests \
+        opentelemetry-instrumentation-elasticsearch \
+        opentelemetry-instrumentation-pymongo \
+        opentelemetry-instrumentation-redis
 
-# Copy application code
-COPY . .
-
-# Create necessary directories
-RUN mkdir -p logs config \
-    && chown -R rag_user:rag_user /app
+# Create necessary directories and set permissions
+RUN mkdir -p logs && \
+    chown -R rag_user:rag_user /app
 
 # Switch to non-root user
 USER rag_user
@@ -56,4 +52,4 @@ HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
 # Run application
-CMD ["python", "-m", "rag_service.app"] 
+CMD ["python", "-m", "uvicorn", "rag_service.app:app", "--host", "0.0.0.0", "--port", "8000"]

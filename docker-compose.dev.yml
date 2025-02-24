@@ -1,15 +1,11 @@
-version: '3.8'
-
 services:
   rag_service:
     build:
       context: .
       dockerfile: Dockerfile
-      target: builder  # Use builder stage for development
     image: rag-service:dev
     container_name: rag_service_dev
     volumes:
-      - .:/app
       - ./config:/app/config
       - ./logs:/app/logs
     ports:
@@ -23,7 +19,7 @@ services:
       - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL}
       - SMTP_USER=${SMTP_USER}
       - SMTP_PASSWORD=${SMTP_PASSWORD}
-    command: uvicorn rag_service.app:app --host 0.0.0.0 --port 8000 --reload
+      - RAG_CONFIG_PATH=/app/config/config.yaml
     depends_on:
       elasticsearch:
         condition: service_healthy

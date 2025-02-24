@@ -3,20 +3,20 @@
 application:
   name: "rag-service"
   version: "1.0.0"
-  environment: "production"
+  environment: "development"
   logging:
     level: "INFO"
     format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     file: "logs/rag_service.log"
   tracing:
     enabled: true
-    otlp_endpoint: "localhost:4317"
+    otlp_endpoint: "jaeger:4317"
     service_name: "rag-service"
     sample_rate: 1.0
 
 database:
   elasticsearch:
-    hosts: ["localhost:9200"]
+    hosts: ["elasticsearch:9200"]
     index_name: "documents"
     timeout: 30
     max_connections: 100
@@ -26,14 +26,14 @@ database:
     sniff_on_connection_fail: true
     sniffer_timeout: 60
   mongodb:
-    uri: "mongodb://localhost:27017"
+    uri: "mongodb://mongodb:27017"
     database: "rag_service"
     collection: "documents"
     max_connections: 100
     timeout: 5000
     retry_writes: true
   redis:
-    host: "localhost"
+    host: "redis"
     port: 6379
     db: 0
     max_connections: 100

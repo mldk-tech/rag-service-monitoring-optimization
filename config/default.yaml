@@ -1,0 +1,122 @@
+app:
+  name: "rag-service"
+  environment: "development"  # development, staging, production
+  log_level: "INFO"
+
+server:
+  host: "0.0.0.0"
+  port: 8000
+  workers: 4
+  timeout: 30
+  cors_origins: ["*"]
+
+security:
+  api_key_header: "X-API-Key"
+  rate_limit:
+    requests_per_minute: 1000
+    burst: 50
+  query_validation:
+    max_length: 2000
+    blocked_patterns: []
+  auth:
+    enabled: true
+    service_url: "http://auth-service:8080"
+    cache_ttl: 300
+
+databases:
+  elasticsearch:
+    hosts: ["http://elasticsearch:9200"]
+    timeout: 30
+    max_connections: 100
+    index_name: "rag_index"
+    settings:
+      number_of_shards: 3
+      number_of_replicas: 1
+      refresh_interval: "1s"
+  
+  mongodb:
+    uri: "mongodb://mongodb:27017"
+    database: "rag_service"
+    collection: "documents"
+    max_connections: 100
+    write_concern:
+      w: "majority"
+      j: true
+      wtimeout: 5000
+  
+  redis:
+    host: "redis"
+    port: 6379
+    db: 0
+    max_connections: 100
+    ssl: false
+
+retrieval:
+  default_top_k: 5
+  timeout: 10
+  strategies:
+    - name: "bm25"
+      weight: 0.3
+      params:
+        b: 0.75
+        k1: 1.2
+    - name: "vector"
+      weight: 0.5
+      model: "sentence-transformers/all-mpnet-base-v2"
+      dimension: 768
+    - name: "hybrid"
+      weight: 0.2
+      params:
+        alpha: 0.7
+
+caching:
+  l1_cache:
+    size: 1000
+    ttl: 300
+  l2_cache:
+    size: 10000
+    ttl: 3600
+  semantic_cache:
+    enabled: true
+    similarity_threshold: 0.85
+
+monitoring:
+  prometheus:
+    enabled: true
+    path: "/metrics"
+  opentelemetry:
+    enabled: true
+    endpoint: "http://otel-collector:4317"
+    service_name: "rag-service"
+  health_check:
+    interval: 60
+    timeout: 5
+  alerting:
+    enabled: true
+    endpoints:
+      - type: "slack"
+        url: "https://hooks.slack.com/services/xxx"
+      - type: "email"
+        address: "alerts@your-org.com"
+
+optimization:
+  enabled: true
+  interval: 3600
+  metrics_window: 86400
+  thresholds:
+    cpu_usage: 0.8
+    memory_usage: 0.8
+    error_rate: 0.01
+    p95_latency: 1.0
+
+models:
+  embeddings:
+    name: "sentence-transformers/all-mpnet-base-v2"
+    cache_dir: "/app/models"
+    device: "cuda"  # or "cpu"
+  query_processing:
+    name: "microsoft/deberta-v3-base"
+    cache_dir: "/app/models"
+    device: "cuda"  # or "cpu"
+    batch_size: 32
+    max_length: 512 

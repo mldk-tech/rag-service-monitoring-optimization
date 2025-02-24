@@ -1,0 +1,24 @@
+docker compose -f docker-compose.dev.yml up -d --build
+docker ps
+docker compose -f docker-compose.dev.yml up -d mongodb
+docker ps
+docker compose -f docker-compose.dev.yml up -d redis
+docker ps
+docker compose -f docker-compose.dev.yml up -d jaeger
+docker ps
+docker compose -f docker-compose.dev.yml up -d prometheus
+docker ps
+docker compose -f docker-compose.dev.yml up -d grafana
+docker ps
+docker compose -f docker-compose.dev.yml logs
+docker ps
+docker compose -f docker-compose.dev.yml up -d rag_service
+docker compose -f docker-compose.dev.yml ps
+docker info
+
+Let's verify their health and then start the RAG service:
+First, let's check if Elasticsearch is responding:
+curl http://localhost:9200/_cluster/health
+
+Now let's start the RAG service:
+docker compose -f docker-compose.dev.yml up -d rag_service

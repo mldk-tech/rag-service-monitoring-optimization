@@ -1,0 +1,221 @@
+# RAG Service Configuration
+
+application:
+  name: "rag-service"
+  version: "1.0.0"
+  environment: "production"
+  logging:
+    level: "INFO"
+    format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    file: "logs/rag_service.log"
+  tracing:
+    enabled: true
+    otlp_endpoint: "localhost:4317"
+    service_name: "rag-service"
+    sample_rate: 1.0
+
+database:
+  elasticsearch:
+    hosts: ["localhost:9200"]
+    index_name: "documents"
+    timeout: 30
+    max_connections: 100
+    retry_on_timeout: true
+    max_retries: 3
+    sniff_on_start: true
+    sniff_on_connection_fail: true
+    sniffer_timeout: 60
+  mongodb:
+    uri: "mongodb://localhost:27017"
+    database: "rag_service"
+    collection: "documents"
+    max_connections: 100
+    timeout: 5000
+    retry_writes: true
+  redis:
+    host: "localhost"
+    port: 6379
+    db: 0
+    max_connections: 100
+    socket_timeout: 5
+    socket_connect_timeout: 5
+    retry_on_timeout: true
+
+retrieval:
+  strategies:
+    - name: "semantic"
+      enabled: true
+      weight: 1.0
+      params:
+        model_name: "all-MiniLM-L6-v2"
+        similarity_threshold: 0.7
+        max_context_length: 512
+    - name: "keyword"
+      enabled: true
+      weight: 0.5
+      params:
+        min_score: 0.3
+        boost_exact_matches: true
+    - name: "hybrid"
+      enabled: true
+      weight: 0.8
+      params:
+        semantic:
+          weight: 0.7
+        keyword:
+          weight: 0.3
+  cache:
+    enabled: true
+    ttl: 3600
+    max_size: 10000
+  chunk_size: 512
+  overlap: 50
+  max_results: 10
+
+generation:
+  models:
+    gpt-4:
+      api_url: "https://api.openai.com/v1/chat/completions"
+      api_key: "${OPENAI_API_KEY}"
+      context_window: 8192
+      max_tokens: 1000
+      temperature: 0.7
+      top_p: 1.0
+      frequency_penalty: 0.0
+      presence_penalty: 0.0
+      max_retries: 3
+      timeout: 30
+      additional_params:
+        stop: null
+        stream: false
+    gpt-3.5-turbo:
+      api_url: "https://api.openai.com/v1/chat/completions"
+      api_key: "${OPENAI_API_KEY}"
+      context_window: 4096
+      max_tokens: 1000
+      temperature: 0.7
+      top_p: 1.0
+      frequency_penalty: 0.0
+      presence_penalty: 0.0
+      max_retries: 3
+      timeout: 15
+      additional_params:
+        stop: null
+        stream: false
+  default_model: "gpt-3.5-turbo"
+  tokenizer: "cl100k_base"
+  prompt_template: |
+    Answer the following question using the provided context:
+
+    Context:
+    {context}
+
+    Question: {query}
+
+    Answer:
+  cache:
+    enabled: true
+    ttl: 3600
+
+optimization:
+  strategies:
+    - name: "cache_optimization"
+      enabled: true
+      schedule: "hourly"
+      params:
+        stale_threshold: 0.2
+        eviction_threshold: 0.1
+    - name: "retrieval_optimization"
+      enabled: true
+      schedule: "daily"
+      params:
+        variance_threshold: 0.2
+        efficiency_threshold: 0.7
+    - name: "resource_optimization"
+      enabled: true
+      schedule: "hourly"
+      params:
+        wait_threshold: 0.1
+        concurrency_threshold: 0.8
+    - name: "model_optimization"
+      enabled: true
+      schedule: "daily"
+      params:
+        quality_threshold: 0.8
+        efficiency_threshold: 0.7
+  thresholds:
+    latency: 1.0
+    error_rate: 0.01
+    cache_hit_rate: 0.8
+    throughput: 100
+  max_failures: 3
+
+security:
+  authentication:
+    enabled: true
+    token_header: "Authorization"
+    token_type: "Bearer"
+    cache_ttl: 300
+  rate_limiting:
+    enabled: true
+    default_limit: 100
+    window_size: 3600
+    strategy: "sliding_window"
+  query_validation:
+    max_length: 1000
+    blocked_patterns:
+      - "(?i)drop.*table"
+      - "(?i)delete.*from"
+      - "(?i)insert.*into"
+  roles:
+    admin:
+      rate_limit: 1000
+      permissions: ["query", "optimize", "manage"]
+    user:
+      rate_limit: 100
+      permissions: ["query"]
+
+monitoring:
+  metrics:
+    enabled: true
+    host: "0.0.0.0"
+    port: 9090
+  logging:
+    level: "INFO"
+    format: "json"
+    output: ["console", "file"]
+  alerts:
+    enabled: true
+    channels:
+      - type: "slack"
+        webhook_url: "${SLACK_WEBHOOK_URL}"
+      - type: "email"
+        smtp_server: "smtp.gmail.com"
+        smtp_port: 587
+        smtp_user: "${SMTP_USER}"
+        smtp_password: "${SMTP_PASSWORD}"
+        recipients: ["alerts@example.com"]
+  thresholds:
+    error_rate: 0.01
+    latency_p95: 1.0
+    memory_usage: 0.9
+    cpu_usage: 0.8
+
+api:
+  host: "0.0.0.0"
+  port: 8000
+  workers: 4
+  log_level: "info"
+  reload: false
+  cors:
+    enabled: true
+    allow_origins: ["*"]
+    allow_methods: ["*"]
+    allow_headers: ["*"]
+  docs:
+    enabled: true
+    title: "RAG Service API"
+    description: "Production-ready RAG service with comprehensive features"
+    version: "1.0.0"
+  timeout: 30
+  max_request_size: "10MB" 

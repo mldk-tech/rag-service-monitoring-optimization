@@ -14,6 +14,7 @@ import aioredis
 from pydantic import BaseModel
 import pybreaker
 from functools import wraps
+from rag_service.monitoring.metrics import MetricsManager
 
 # Define circuit breakers at module level
 es_breaker = pybreaker.CircuitBreaker(

@@ -424,10 +424,11 @@ def get_api_manager() -> APIManager:
 async def query(
     request: QueryRequest,
     background_tasks: BackgroundTasks,
+    api_request: Request,
     api_manager: APIManager = Depends(get_api_manager)
 ):
     """Handle query requests."""
-    security_context = await api_manager.authenticate_request(request)
+    security_context = await api_manager.authenticate_request(api_request)
     return await api_manager.process_query(
         request,
         security_context,
@@ -437,10 +438,11 @@ async def query(
 @app.post("/optimize")
 async def optimize(
     request: OptimizationRequest,
+    api_request: Request,
     api_manager: APIManager = Depends(get_api_manager)
 ):
     """Handle optimization requests."""
-    security_context = await api_manager.authenticate_request(request)
+    security_context = await api_manager.authenticate_request(api_request)
     return await api_manager.run_optimization(request, security_context)
 
 @app.get("/health", response_model=HealthResponse)

@@ -437,4 +437,94 @@ class MetricsCollector:
                 "latency": self.retrieval_latency._sum.sum()
             },
             "errors": self.error_counter._value.sum()
-        } 
+        }
+
+class MetricsManager:
+    """Singleton manager for metrics collection and management."""
+    
+    _instance = None
+    _collector = None
+
+    def __new__(cls):
+        """Ensure singleton pattern."""
+        if cls._instance is None:
+            cls._instance = super(MetricsManager, cls).__new__(cls)
+            cls._collector = MetricsCollector()
+        return cls._instance
+
+    def __getattr__(self, name):
+        """Delegate unknown attributes to collector."""
+        return getattr(self._collector, name)
+
+    @classmethod
+    def get_instance(cls) -> 'MetricsManager':
+        """Get singleton instance."""
+        if cls._instance is None:
+            cls._instance = cls()
+        return cls._instance
+
+    def reset_metrics(self) -> None:
+        """Reset all metrics to initial state."""
+        self._collector = MetricsCollector()
+
+    def get_collector(self) -> MetricsCollector:
+        """Get the underlying metrics collector."""
+        return self._collector
+
+    def with_metrics(self, component: str, method: str):
+        """Decorator to automatically record metrics for a function.
+        
+        Args:
+            component: Component name
+            method: Method name
+        """
+        def decorator(func):
+            import inspect
+            if inspect.iscoroutinefunction(func):
+                async def wrapper(*args, **kwargs):
+                    start_time = time.time()
+                    error = None
+                    try:
+                        result = await func(*args, **kwargs)
+                        return result
+                    except Exception as e:
+                        error = e
+                        self._collector.record_error(
+                            component=component,
+                            error_type=type(e).__name__,
+                            severity="error"
+                        )
+                        raise
+                    finally:
+                        duration = time.time() - start_time
+                        self._collector.record_request(
+                            method=method,
+                            duration=duration,
+                            status="error" if error else "success"
+                        )
+                return wrapper
+            else:
+                def wrapper(*args, **kwargs):
+                    start_time = time.time()
+                    error = None
+                    try:
+                        result = func(*args, **kwargs)
+                        return result
+                    except Exception as e:
+                        error = e
+                        self._collector.record_error(
+                            component=component,
+                            error_type=type(e).__name__,
+                            severity="error"
+                        )
+                        raise
+                    finally:
+                        duration = time.time() - start_time
+                        self._collector.record_request(
+                            method=method,
+                            duration=duration,
+                            status="error" if error else "success"
+                        )
+                return wrapper
+            return decorator
+        return decorator 

@@ -13,6 +13,26 @@ from motor.motor_asyncio import AsyncIOMotorClient
 import aioredis
 from pydantic import BaseModel
 import pybreaker
+from functools import wraps
+
+# Define circuit breakers at module level
+es_breaker = pybreaker.CircuitBreaker(
+    fail_max=5,
+    reset_timeout=60,
+    name="elasticsearch"
+)
+
+mongo_breaker = pybreaker.CircuitBreaker(
+    fail_max=5,
+    reset_timeout=60,
+    name="mongodb"
+)
+
+redis_breaker = pybreaker.CircuitBreaker(
+    fail_max=5,
+    reset_timeout=60,
+    name="redis"
+)
 
 class DatabaseError(Exception):
     """Base class for database-related errors."""
@@ -47,30 +67,13 @@ class DatabaseManager:
         self.config = config
         self.tracer = trace.get_tracer(__name__)
 
-        # Circuit breakers
-        self.es_breaker = pybreaker.CircuitBreaker(
-            fail_max=5,
-            reset_timeout=60,
-            name="elasticsearch"
-        )
-        self.mongo_breaker = pybreaker.CircuitBreaker(
-            fail_max=5,
-            reset_timeout=60,
-            name="mongodb"
-        )
-        self.redis_breaker = pybreaker.CircuitBreaker(
-            fail_max=5,
-            reset_timeout=60,
-            name="redis"
-        )
-
-        # Metrics
-        self._init_metrics()
-
         # Initialize connections
         self.es_client = None
         self.mongo_client = None
         self.redis_client = None
+
+        # Metrics
+        self._init_metrics()
 
     def _init_metrics(self):
         """Initialize database metrics."""

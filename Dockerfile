@@ -1,4 +1,4 @@
-FROM python:3.11-slim
+FROM python:3.12-slim
 
 # Set working directory
 WORKDIR /app
@@ -20,8 +20,8 @@ COPY config /app/config
 # Install Python dependencies
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir . && \
+    pip install --no-cache-dir "uvicorn[standard]" && \
     pip install --no-cache-dir \
-        uvicorn \
         opentelemetry-api \
         opentelemetry-sdk \
         opentelemetry-exporter-otlp \
@@ -30,7 +30,12 @@ RUN pip install --no-cache-dir --upgrade pip && \
         opentelemetry-instrumentation-requests \
         opentelemetry-instrumentation-elasticsearch \
         opentelemetry-instrumentation-pymongo \
-        opentelemetry-instrumentation-redis
+        opentelemetry-instrumentation-redis \
+        redis>=4.2.0
+
+# Replace aioredis with redis.asyncio in your code
+RUN find /app -type f -name "*.py" -exec sed -i 's/import aioredis/from redis import asyncio as aioredis/g' {} \;
+RUN find /app -type f -name "*.py" -exec sed -i 's/from aioredis/from redis.asyncio/g' {} \;
 
 # Create necessary directories and set permissions
 RUN mkdir -p logs && \

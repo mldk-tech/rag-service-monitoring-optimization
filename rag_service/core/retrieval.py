@@ -276,29 +276,34 @@ class RetrievalManager:
         top_k: int,
         params: Dict[str, Any]
     ) -> List[RetrievalResult]:
-        """Execute semantic search using embeddings."""
+        """Execute semantic search using embeddings.
+        
+        Args:
+            query: Search query
+            filters: Optional filters
+            top_k: Number of results to retrieve
+            params: Strategy parameters
+            
+        Returns:
+            List of retrieval results
+        """
+        start_time = time.time()
+        
         # Get query embedding
         query_embedding = await self._get_query_embedding(query)
-
-        # Search documents
-        search_results = await self.db_manager.search_documents(
-            query,
-            filters={
-                **filters if filters else {},
-                "script_score": {
-                    "script": {
-                        "source": "cosineSimilarity(params.query_vector, 'embedding') + 1.0",
-                        "params": {"query_vector": query_embedding}
-                    }
-                }
-            },
-            size=top_k
+        
+        # Search in Elasticsearch
+        results = await self.db_manager.search_by_vector(
+            query_embedding,
+            top_k=top_k,
+            min_score=params.get("similarity_threshold", 0.7),
+            **(filters or {})
         )
 
         # Convert to retrieval results
-        results = []
-        for doc in search_results:
-            results.append(
+        retrieval_results = []
+        for doc in results:
+            retrieval_results.append(
                 RetrievalResult(
                     document=doc,
                     score=doc.metadata.get("_score", 0.0),
@@ -307,7 +312,7 @@ class RetrievalManager:
                 )
             )
 
-        return results
+        return retrieval_results
 
     async def _keyword_search(
         self,

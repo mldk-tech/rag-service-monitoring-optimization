@@ -4,9 +4,13 @@ from typing import Dict, List, Optional, Union, Any
 import os
 from pathlib import Path
 import logging
-from pydantic import BaseModel, Field, validator, root_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from omegaconf import OmegaConf
 from dotenv import load_dotenv
+import yaml
+import structlog
+
+logger = structlog.get_logger(__name__)
 
 # --- Configuration Models ---
 
@@ -49,7 +53,7 @@ class ElasticsearchConfig(BaseModel):
     index_name: str = Field(..., description="Index name")
     settings: Dict[str, Any] = Field(default_factory=dict, description="Index settings")
 
-    @validator('hosts')
+    @field_validator('hosts')
     def validate_hosts(cls, v):
         """Validate Elasticsearch hosts."""
         for host in v:
@@ -91,7 +95,7 @@ class RetrievalConfig(BaseModel):
     timeout: int = Field(..., gt=0, description="Retrieval timeout in seconds")
     strategies: List[RetrievalStrategyConfig]
 
-    @validator('strategies')
+    @field_validator('strategies')
     def validate_strategy_weights(cls, v):
         """Validate that strategy weights sum to 1."""
         total_weight = sum(strategy.weight for strategy in v)

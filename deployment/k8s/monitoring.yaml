@@ -1,0 +1,373 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+      scrape_timeout: 10s
+      external_labels:
+        monitor: 'rag-service-monitor'
+
+    rule_files:
+      - "rules/*.yml"
+
+    scrape_configs:
+      - job_name: 'prometheus'
+        static_configs:
+          - targets: ['localhost:9090']
+
+      - job_name: 'rag-service'
+        metrics_path: '/metrics'
+        scrape_interval: 10s
+        static_configs:
+          - targets: ['rag-service:8000']
+        relabel_configs:
+          - source_labels: [__address__]
+            target_label: instance
+            replacement: 'rag-service'
+
+      - job_name: 'elasticsearch'
+        metrics_path: '/_prometheus/metrics'
+        scrape_interval: 10s
+        static_configs:
+          - targets: ['elasticsearch:9200']
+        relabel_configs:
+          - source_labels: [__address__]
+            target_label: instance
+            replacement: 'elasticsearch'
+
+      - job_name: 'redis'
+        metrics_path: '/metrics'
+        scrape_interval: 10s
+        static_configs:
+          - targets: ['redis-exporter:9121']
+        relabel_configs:
+          - source_labels: [__address__]
+            target_label: instance
+            replacement: 'redis'
+
+      - job_name: 'mongodb'
+        metrics_path: '/metrics'
+        scrape_interval: 10s
+        static_configs:
+          - targets: ['mongodb-exporter:9216']
+        relabel_configs:
+          - source_labels: [__address__]
+            target_label: instance
+            replacement: 'mongodb'
+
+      - job_name: 'node-exporter'
+        metrics_path: '/metrics'
+        scrape_interval: 10s
+        static_configs:
+          - targets: ['node-exporter:9100']
+        relabel_configs:
+          - source_labels: [__address__]
+            target_label: instance
+            replacement: 'node'
+
+      - job_name: 'cadvisor'
+        metrics_path: '/metrics'
+        scrape_interval: 10s
+        static_configs:
+          - targets: ['cadvisor:8080']
+        relabel_configs:
+          - source_labels: [__address__]
+            target_label: instance
+            replacement: 'cadvisor'
+
+      - job_name: 'opentelemetry'
+        metrics_path: '/metrics'
+        scrape_interval: 10s
+        static_configs:
+          - targets: ['otel-collector:8889']
+        relabel_configs:
+          - source_labels: [__address__]
+            target_label: instance
+            replacement: 'otel-collector'
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources
+data:
+  "datasources.yaml": |
+    - name: Prometheus
+      type: prometheus
+      access: proxy
+      orgId: 1
+      url: http://prometheus:9090
+      isDefault: true
+      version: 1
+      editable: false
+      jsonData:
+        timeInterval: "15s"
+        queryTimeout: "30s"
+        httpMethod: "POST"
+        exemplarTraceIdDestinations:
+          - name: trace_id
+            datasourceUid: tempo
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards-provisioning
+data:
+  dashboards.yml: |
+    apiVersion: 1
+    providers:
+      - name: 'RAG Service'
+        orgId: 1
+        folder: 'RAG Service'
+        type: file
+        disableDeletion: false
+        editable: true
+        updateIntervalSeconds: 10
+        allowUiUpdates: true
+        options:
+          path: /etc/grafana/provisioning/dashboards
+          foldersFromFilesStructure: true
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-collector-config
+data:
+  config.yml: |
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+
+    processors:
+      batch:
+        timeout: 1s
+        send_batch_size: 1024
+      memory_limiter:
+        check_interval: 1s
+        limit_mib: 1024
+        spike_limit_mib: 128
+      resourcedetection:
+        detectors: [env, system]
+        timeout: 2s
+      probabilistic_sampler:
+        hash_seed: 22
+        sampling_percentage: 100
+
+    exporters:
+      prometheus:
+        endpoint: "0.0.0.0:8889"
+        namespace: "rag"
+        send_timestamps: true
+        metric_expiration: 180m
+        resource_to_telemetry_conversion:
+          enabled: true
+      
+      jaeger:
+        endpoint: jaeger:14250
+        tls:
+          insecure: true
+
+      logging:
+        loglevel: debug
+        sampling_initial: 5
+        sampling_thereafter: 200
+
+    service:
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [memory_limiter, batch, probabilistic_sampler]
+          exporters: [jaeger, logging]
+        
+        metrics:
+          receivers: [otlp]
+          processors: [memory_limiter, batch, resourcedetection]
+          exporters: [prometheus, logging]
+
+      telemetry:
+        logs:
+          level: "debug"
+        metrics:
+          level: "detailed"
+          address: "0.0.0.0:8888"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus
+  template:
+    metadata:
+      labels:
+        app: prometheus
+    spec:
+      containers:
+        - name: prometheus
+          image: prom/prometheus:v2.45.0
+          args:
+            - "--config.file=/etc/prometheus/prometheus.yml"
+            - "--storage.tsdb.path=/prometheus"
+            - "--storage.tsdb.retention.time=15d"
+            - "--web.enable-lifecycle"
+          ports:
+            - containerPort: 9090
+          volumeMounts:
+            - name: prometheus-config
+              mountPath: /etc/prometheus/prometheus.yml
+              subPath: prometheus.yml
+            - name: prometheus-storage
+              mountPath: /prometheus
+      volumes:
+        - name: prometheus-config
+          configMap:
+            name: prometheus-config
+        - name: prometheus-storage
+          emptyDir: {}
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana
+  template:
+    metadata:
+      labels:
+        app: grafana
+    spec:
+      containers:
+        - name: grafana
+          image: grafana/grafana:9.5.3
+          ports:
+            - containerPort: 3000
+          env:
+            - name: GF_SECURITY_ADMIN_USER
+              valueFrom:
+                secretKeyRef:
+                  name: grafana-credentials
+                  key: admin-user
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: grafana-credentials
+                  key: admin-password
+          volumeMounts:
+            - name: grafana-datasources
+              mountPath: /etc/grafana/provisioning/datasources
+            - name: grafana-dashboards-provisioning
+              mountPath: /etc/grafana/provisioning/dashboards
+            - name: grafana-dashboards
+              mountPath: /etc/grafana/dashboards
+            - name: grafana-storage
+              mountPath: /var/lib/grafana
+      volumes:
+        - name: grafana-datasources
+          configMap:
+            name: grafana-datasources
+        - name: grafana-dashboards-provisioning
+          configMap:
+            name: grafana-dashboards-provisioning
+        - name: grafana-dashboards
+          configMap:
+            name: grafana-dashboards
+        - name: grafana-storage
+          emptyDir: {}
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: otel-collector
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: otel-collector
+  template:
+    metadata:
+      labels:
+        app: otel-collector
+    spec:
+      containers:
+        - name: otel-collector
+          image: otel/opentelemetry-collector-contrib:0.81.0
+          args:
+            - "--config=/etc/otelcol/config.yml"
+          ports:
+            - containerPort: 4317  # OTLP gRPC
+            - containerPort: 4318  # OTLP HTTP
+            - containerPort: 8888  # Metrics
+            - containerPort: 8889  # Prometheus exporter
+          volumeMounts:
+            - name: otel-collector-config
+              mountPath: /etc/otelcol/config.yml
+              subPath: config.yml
+      volumes:
+        - name: otel-collector-config
+          configMap:
+            name: otel-collector-config
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+spec:
+  selector:
+    app: prometheus
+  ports:
+    - port: 9090
+      targetPort: 9090
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+spec:
+  selector:
+    app: grafana
+  ports:
+    - port: 3000
+      targetPort: 3000
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: otel-collector
+spec:
+  selector:
+    app: otel-collector
+  ports:
+    - name: otlp-grpc
+      port: 4317
+      targetPort: 4317
+    - name: otlp-http
+      port: 4318
+      targetPort: 4318
+    - name: metrics
+      port: 8888
+      targetPort: 8888
+    - name: prometheus
+      port: 8889
+      targetPort: 8889 

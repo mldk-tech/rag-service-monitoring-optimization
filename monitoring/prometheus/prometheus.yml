@@ -2,83 +2,83 @@ global:
   scrape_interval: 15s
   evaluation_interval: 15s
   scrape_timeout: 10s
-
-alerting:
-  alertmanagers:
-    - static_configs:
-        - targets:
-          # - alertmanager:9093
+  external_labels:
+    monitor: 'rag-service-monitor'
 
 rule_files:
-  # - "rules/*.yml"
+  - "rules/*.yml"
 
 scrape_configs:
-  - job_name: 'rag_service'
-    metrics_path: '/metrics'
+  - job_name: 'prometheus'
     static_configs:
-      - targets: ['rag_service:9090']
+      - targets: ['localhost:9090']
+
+  - job_name: 'rag-service'
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+    static_configs:
+      - targets: ['rag-service:8000']
     relabel_configs:
       - source_labels: [__address__]
         target_label: instance
-        regex: '([^:]+)(?::\d+)?'
-        replacement: '${1}'
+        replacement: 'rag-service'
 
   - job_name: 'elasticsearch'
     metrics_path: '/_prometheus/metrics'
+    scrape_interval: 10s
     static_configs:
       - targets: ['elasticsearch:9200']
     relabel_configs:
       - source_labels: [__address__]
         target_label: instance
-        regex: '([^:]+)(?::\d+)?'
-        replacement: '${1}'
-
-  - job_name: 'mongodb'
-    metrics_path: '/metrics'
-    static_configs:
-      - targets: ['mongodb:27017']
-    relabel_configs:
-      - source_labels: [__address__]
-        target_label: instance
-        regex: '([^:]+)(?::\d+)?'
-        replacement: '${1}'
+        replacement: 'elasticsearch'
 
   - job_name: 'redis'
     metrics_path: '/metrics'
+    scrape_interval: 10s
     static_configs:
-      - targets: ['redis:6379']
+      - targets: ['redis-exporter:9121']
     relabel_configs:
       - source_labels: [__address__]
         target_label: instance
-        regex: '([^:]+)(?::\d+)?'
-        replacement: '${1}'
+        replacement: 'redis'
 
-  - job_name: 'jaeger'
+  - job_name: 'mongodb'
     metrics_path: '/metrics'
+    scrape_interval: 10s
     static_configs:
-      - targets: ['jaeger:14269']
+      - targets: ['mongodb-exporter:9216']
     relabel_configs:
       - source_labels: [__address__]
         target_label: instance
-        regex: '([^:]+)(?::\d+)?'
-        replacement: '${1}'
+        replacement: 'mongodb'
 
-  - job_name: 'prometheus'
+  - job_name: 'node-exporter'
     metrics_path: '/metrics'
+    scrape_interval: 10s
     static_configs:
-      - targets: ['localhost:9090']
+      - targets: ['node-exporter:9100']
     relabel_configs:
       - source_labels: [__address__]
         target_label: instance
-        regex: '([^:]+)(?::\d+)?'
-        replacement: '${1}'
+        replacement: 'node'
 
-  - job_name: 'grafana'
+  - job_name: 'cadvisor'
     metrics_path: '/metrics'
+    scrape_interval: 10s
     static_configs:
-      - targets: ['grafana:3000']
+      - targets: ['cadvisor:8080']
     relabel_configs:
       - source_labels: [__address__]
         target_label: instance
-        regex: '([^:]+)(?::\d+)?'
-        replacement: '${1}' 
+        replacement: 'cadvisor'
+
+  - job_name: 'opentelemetry'
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+    static_configs:
+      - targets: ['otel-collector:8889']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: 'otel-collector'

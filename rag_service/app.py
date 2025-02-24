@@ -1,4 +1,4 @@
-"""Main application module for service initialization and startup."""
+"""Main application module with enhanced initialization and lifecycle management."""
 
 import os
 import sys
@@ -15,6 +15,9 @@ from pydantic import BaseModel, Field, validator
 import structlog
 from contextlib import asynccontextmanager
 import signal
+from fastapi import FastAPI, Request, Depends
+from fastapi.middleware.cors import CORSMiddleware
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 
 from rag_service.api.endpoints import app, APIManager
 from rag_service.core.database import DatabaseManager
@@ -24,6 +27,8 @@ from rag_service.core.optimization import OptimizationManager
 from rag_service.security.security_manager import SecurityManager
 from rag_service.monitoring.metrics import MetricsManager
 from rag_service.config.config_manager import ConfigManager
+from rag_service.config import setup_telemetry
+from rag_service.monitoring.telemetry import TelemetryManager
 
 # Enhanced logging setup
 logger = structlog.get_logger(__name__)
@@ -110,15 +115,112 @@ def setup_metrics(config: ApplicationConfig.MonitoringConfig.MetricsConfig):
     )
 
 @asynccontextmanager
-async def lifespan(app):
-    """Manage application lifespan with proper initialization and cleanup."""
+async def lifespan(app: FastAPI):
+    """Proper FastAPI lifespan context manager."""
+    # Initialize resources
+    config_path = os.getenv("RAG_CONFIG_PATH", "config/config.yaml")
+    config_manager = ConfigManager(config_path)
+    config = config_manager.load_config()
+    
+    # Setup dependencies with proper error handling
     try:
-        await startup_event()
+        # Initialize telemetry first for proper tracing
+        telemetry_manager = TelemetryManager(config)
+        telemetry_manager.instrument_fastapi(app)
+        
+        # Initialize metrics manager
+        metrics_manager = MetricsManager.get_instance()
+        
+        # Initialize database connections with tracing
+        db_manager = DatabaseManager(config["database"])
+        await db_manager.connect()
+        
+        # Initialize other components
+        security_manager = SecurityManager(metrics_manager, config["security"])
+        retrieval_manager = RetrievalManager(db_manager, metrics_manager, config["retrieval"])
+        generation_manager = GenerationManager(metrics_manager, config["generation"])
+        await generation_manager.initialize()
+        
+        # Store in app state for dependency injection
+        app.state.telemetry_manager = telemetry_manager
+        app.state.db_manager = db_manager
+        app.state.security_manager = security_manager
+        app.state.retrieval_manager = retrieval_manager
+        app.state.generation_manager = generation_manager
+        app.state.metrics_manager = metrics_manager
+        
+        # Yield control back to FastAPI
         yield
+        
+    except Exception as e:
+        logger.error(f"Startup failed: {str(e)}")
+        raise
     finally:
-        await shutdown_event()
+        # Cleanup resources
+        try:
+            if hasattr(app.state, "generation_manager"):
+                await app.state.generation_manager.close()
+                
+            if hasattr(app.state, "db_manager"):
+                await app.state.db_manager.close()
+                
+            if hasattr(app.state, "telemetry_manager"):
+                await app.state.telemetry_manager.shutdown()
+                
+            logger.info("All resources cleaned up")
+        except Exception as e:
+            logger.error(f"Cleanup failed: {str(e)}")
 
-app.router.lifespan_context = lifespan
+# Create FastAPI application
+app = FastAPI(
+    title="RAG Service",
+    description="RAG Service with Enhanced Monitoring and Observability",
+    version="0.1.0",
+    lifespan=lifespan
+)
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Dependency injection functions
+def get_telemetry_manager(request: Request) -> TelemetryManager:
+    """Get telemetry manager from app state."""
+    return request.app.state.telemetry_manager
+
+def get_db_manager(request: Request) -> DatabaseManager:
+    """Get database manager from app state."""
+    return request.app.state.db_manager
+
+def get_security_manager(request: Request) -> SecurityManager:
+    """Get security manager from app state."""
+    return request.app.state.security_manager
+
+def get_retrieval_manager(request: Request) -> RetrievalManager:
+    """Get retrieval manager from app state."""
+    return request.app.state.retrieval_manager
+
+def get_generation_manager(request: Request) -> GenerationManager:
+    """Get generation manager from app state."""
+    return request.app.state.generation_manager
+
+def get_metrics_manager(request: Request) -> MetricsManager:
+    """Get metrics manager from app state."""
+    return request.app.state.metrics_manager
+
+@app.get("/health")
+async def health_check(db_manager: DatabaseManager = Depends(get_db_manager)) -> Dict[str, Any]:
+    """Health check endpoint with database connectivity check."""
+    status = await db_manager.check_health()
+    return {
+        "status": "healthy" if all(status.values()) else "unhealthy",
+        "services": status
+    }
 
 @app.on_event("startup")
 async def startup_event():

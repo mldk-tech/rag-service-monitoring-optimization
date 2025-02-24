@@ -1,0 +1,38 @@
+telemetry:
+  # OpenTelemetry Collector configuration
+  otlp_enabled: true
+  otlp_endpoint: "http://otel-collector:4317"
+  
+  # Jaeger configuration
+  jaeger_enabled: true
+  jaeger_host: "jaeger"
+  jaeger_port: 6831
+  
+  # Sampling configuration
+  sampler:
+    type: "parentbased_traceidratio"
+    rate: 1.0  # Sample 100% of traces in development
+  
+  # Resource attributes
+  resource_attributes:
+    deployment.environment: "development"
+    service.namespace: "rag"
+    service.instance.id: "${HOSTNAME}"
+  
+  # Instrumentation configuration
+  instrumentation:
+    fastapi:
+      excluded_urls: ["health", "metrics"]
+    elasticsearch:
+      db_statement: true  # Include query statements in spans
+    redis:
+      db_statement: true
+    pymongo:
+      db_statement: true
+  
+  # Batch processor configuration
+  batch_processor:
+    max_queue_size: 2048
+    schedule_delay_millis: 5000
+    max_export_batch_size: 512
+    export_timeout_millis: 30000 

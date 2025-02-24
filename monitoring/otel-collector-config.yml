@@ -1,0 +1,60 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch:
+    timeout: 1s
+    send_batch_size: 1024
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 1024
+    spike_limit_mib: 128
+  resourcedetection:
+    detectors: [env, system]
+    timeout: 2s
+  probabilistic_sampler:
+    hash_seed: 22
+    sampling_percentage: 100
+
+exporters:
+  prometheus:
+    endpoint: "0.0.0.0:8889"
+    namespace: "rag"
+    send_timestamps: true
+    metric_expiration: 180m
+    resource_to_telemetry_conversion:
+      enabled: true
+  
+  jaeger:
+    endpoint: jaeger:14250
+    tls:
+      insecure: true
+
+  logging:
+    loglevel: debug
+    sampling_initial: 5
+    sampling_thereafter: 200
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch, probabilistic_sampler]
+      exporters: [jaeger, logging]
+    
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, batch, resourcedetection]
+      exporters: [prometheus, logging]
+
+  telemetry:
+    logs:
+      level: "debug"
+    metrics:
+      level: "detailed"
+      address: "0.0.0.0:8888" 

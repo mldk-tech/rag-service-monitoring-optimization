@@ -1,8 +1,7 @@
 """Enhanced database management module with comprehensive features and safety mechanisms."""
 
-from typing import Dict, Any, Optional, List, Union, Type
+from typing import Dict, Any, Optional, List
 from enum import Enum
-import logging
 import time
 import uuid
 import asyncio
@@ -11,17 +10,18 @@ from dataclasses import dataclass
 from prometheus_client import Counter, Histogram, Gauge, Summary
 from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
-import elasticsearch
 from motor.motor_asyncio import AsyncIOMotorClient
 import aioredis
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 import pybreaker
 from functools import wraps
 import structlog
-from deepdiff import DeepDiff
-from collections import defaultdict
 import atexit
 from rag_service.monitoring.metrics import MetricsManager
+from elasticsearch import AsyncElasticsearch
+from elasticsearch.exceptions import ElasticsearchException
+import numpy as np
+from rag_service.core.decorators import es_breaker, mongo_breaker, redis_breaker
 
 # Enhanced logging setup
 logger = structlog.get_logger(__name__)
@@ -68,7 +68,7 @@ class DatabaseConfig(BaseModel):
     circuit_breaker_threshold: int = Field(default=5, ge=1)
     circuit_breaker_reset_timeout: int = Field(default=60, ge=1)
     
-    @validator("elasticsearch")
+    @field_validator("elasticsearch")
     def validate_es_config(cls, v):
         if not v.hosts:
             raise ValueError("At least one Elasticsearch host must be specified")
@@ -115,7 +115,7 @@ class Document(BaseModel):
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
     
-    @validator("embedding")
+    @field_validator("embedding")
     def validate_embedding(cls, v):
         if v is not None and not all(isinstance(x, (int, float)) for x in v):
             raise ValueError("Embedding must contain only numbers")
@@ -839,7 +839,7 @@ class DatabaseManager:
 
     async def _create_elasticsearch_client(self):
         """Create a new Elasticsearch client."""
-        return elasticsearch.AsyncElasticsearch(
+        return AsyncElasticsearch(
             hosts=self.config.elasticsearch.hosts,
             timeout=self.config.elasticsearch.timeout,
             maxsize=1,  # Individual connection
@@ -1270,5 +1270,118 @@ class DatabaseManager:
     async def health_check(self) -> Dict[str, Dict[str, Any]]:
         """Check health of all database connections with enhanced monitoring."""
         return await self._health_monitor._check_health()
+
+    async def search_by_vector(
+        self,
+        query_vector: List[float],
+        index: str = "documents",
+        top_k: int = 5,
+        min_score: float = 0.7,
+        filters: Optional[Dict[str, Any]] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Search for documents using vector similarity.
+        """
+        try:
+            with self.search_latency.labels(index=index, status="success").time():
+                # Prepare the search query with vector similarity
+                script_score = {
+                    "script_score": {
+                        "query": {"match_all": {}},
+                        "script": {
+                            "source": "cosineSimilarity(params.query_vector, 'embedding') + 1.0",
+                            "params": {"query_vector": query_vector}
+                        }
+                    }
+                }
+
+                # Add filters if provided
+                if filters:
+                    bool_query = {"bool": {"must": [script_score]}}
+                    for field, value in filters.items():
+                        bool_query["bool"]["must"].append({"term": {field: value}})
+                    query = bool_query
+                else:
+                    query = script_score
+
+                # Execute search
+                response = await self.es_client.search(
+                    index=index,
+                    body={
+                        "query": query,
+                        "size": top_k,
+                        "min_score": min_score
+                    }
+                )
+
+                # Process and return results
+                results = []
+                for hit in response["hits"]["hits"]:
+                    doc = hit["_source"]
+                    doc["score"] = hit["_score"] - 1.0  # Adjust score back to cosine similarity range
+                    results.append(doc)
+
+                return results
+
+        except ElasticsearchException as e:
+            logger.error("vector_search_failed", error=str(e), index=index)
+            self.search_errors.labels(index=index, error_type=type(e).__name__).inc()
+            raise
+
+    async def index_document(
+        self,
+        document: Dict[str, Any],
+        index: str = "documents"
+    ) -> str:
+        """
+        Index a document with its vector embedding.
+        """
+        try:
+            # Ensure the index exists with proper mapping
+            await self._ensure_index_exists(index)
+            
+            # Index the document
+            response = await self.es_client.index(
+                index=index,
+                body=document,
+                refresh=True
+            )
+            
+            return response["_id"]
+            
+        except ElasticsearchException as e:
+            logger.error("document_indexing_failed", error=str(e), index=index)
+            raise
+
+    async def _ensure_index_exists(self, index: str) -> None:
+        """
+        Ensure the index exists with proper mapping for vector search.
+        """
+        try:
+            # Check if index exists
+            if not await self.es_client.indices.exists(index=index):
+                # Create index with vector mapping
+                await self.es_client.indices.create(
+                    index=index,
+                    body={
+                        "mappings": {
+                            "properties": {
+                                "embedding": {
+                                    "type": "dense_vector",
+                                    "dims": 384,  # Dimension for all-MiniLM-L6-v2
+                                    "index": True,
+                                    "similarity": "cosine"
+                                },
+                                "text": {"type": "text"},
+                                "metadata": {"type": "object"}
+                            }
+                        }
+                    }
+                )
+                logger.info("created_vector_index", index=index)
+                
+        except ElasticsearchException as e:
+            logger.error("index_creation_failed", error=str(e), index=index)
+            raise
 
  

@@ -1,4 +1,4 @@
-"""Monitoring and metrics module for comprehensive observability of the RAG service."""
+"""Enhanced monitoring and metrics module for comprehensive observability."""
 
 from typing import Dict, Optional, Any
 import time
@@ -7,6 +7,9 @@ from prometheus_client import Counter, Histogram, Gauge, Summary
 from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
 import logging
+import structlog
+
+logger = structlog.get_logger(__name__)
 
 @dataclass
 class MetricsLabels:
@@ -19,125 +22,159 @@ class MetricsCollector:
     """Centralized metrics collection for the RAG service."""
 
     def __init__(self):
-        """Initialize metrics collectors."""
-        # Request metrics
-        self.request_counter = Counter(
-            'rag_requests_total',
-            'Total number of requests',
-            ['method', 'status']
+        """Initialize all metrics collectors."""
+        # Database connection metrics
+        self.db_connection_pool_size = Gauge(
+            'rag_db_connection_pool_size',
+            'Current size of database connection pools',
+            ['database']
         )
-        self.request_latency = Histogram(
-            'rag_request_duration_seconds',
-            'Request duration in seconds',
-            ['method', 'status'],
-            buckets=(0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0)
+        self.db_active_connections = Gauge(
+            'rag_db_active_connections',
+            'Number of active database connections',
+            ['database']
         )
-
-        # Query processing metrics
-        self.query_processing_latency = Histogram(
-            'rag_query_processing_duration_seconds',
-            'Query processing duration in seconds',
-            ['stage', 'status'],
-            buckets=(0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0)
+        self.db_connection_errors = Counter(
+            'rag_db_connection_errors_total',
+            'Total number of database connection errors',
+            ['database', 'error_type']
         )
-        self.query_expansion_ratio = Histogram(
-            'rag_query_expansion_ratio',
-            'Ratio of expanded query length to original query length',
-            buckets=(1.0, 1.5, 2.0, 3.0, 5.0)
+        self.db_connection_timeouts = Counter(
+            'rag_db_connection_timeouts_total',
+            'Total number of database connection timeouts',
+            ['database']
         )
 
-        # Retrieval metrics
-        self.retrieval_latency = Histogram(
-            'rag_retrieval_duration_seconds',
-            'Retrieval duration in seconds',
-            ['method', 'status', 'retriever_type'],
-            buckets=(0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0)
+        # Database query metrics
+        self.db_queries_total = Counter(
+            'rag_db_queries_total',
+            'Total number of database queries',
+            ['database', 'operation', 'status']
         )
-        self.retrieval_results_count = Histogram(
-            'rag_retrieval_results_count',
-            'Number of results returned by retrieval',
-            ['retriever_type'],
-            buckets=(1, 5, 10, 20, 50, 100)
+        self.db_query_duration_seconds = Histogram(
+            'rag_db_query_duration_seconds',
+            'Database query duration in seconds',
+            ['database', 'operation', 'status'],
+            buckets=(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5)
+        )
+        self.db_queries_active = Gauge(
+            'rag_db_queries_active',
+            'Number of currently executing queries',
+            ['database', 'operation']
+        )
+        self.db_query_timeouts = Counter(
+            'rag_db_query_timeouts_total',
+            'Total number of query timeouts',
+            ['database', 'operation']
+        )
+        self.db_query_errors = Counter(
+            'rag_db_query_errors_total',
+            'Total number of query errors',
+            ['database', 'operation', 'error_type']
+        )
+
+        # Circuit breaker metrics
+        self.circuit_breaker_state = Gauge(
+            'rag_circuit_breaker_state',
+            'Circuit breaker state (0=open, 1=closed)',
+            ['name']
+        )
+        self.circuit_breaker_failures = Counter(
+            'rag_circuit_breaker_failures_total',
+            'Total number of circuit breaker failures',
+            ['name', 'type']
+        )
+        self.circuit_breaker_state_changes = Counter(
+            'rag_circuit_breaker_state_changes_total',
+            'Total number of circuit breaker state changes',
+            ['name', 'from_state', 'to_state']
         )
 
         # Cache metrics
         self.cache_hits = Counter(
             'rag_cache_hits_total',
             'Total number of cache hits',
-            ['cache_level', 'cache_type']
+            ['operation']
         )
         self.cache_misses = Counter(
             'rag_cache_misses_total',
             'Total number of cache misses',
-            ['cache_level', 'cache_type']
+            ['operation']
         )
-        self.cache_latency = Histogram(
-            'rag_cache_operation_duration_seconds',
-            'Cache operation duration in seconds',
-            ['operation', 'cache_level', 'status'],
-            buckets=(0.001, 0.005, 0.01, 0.025, 0.05, 0.1)
+        self.cache_sets = Counter(
+            'rag_cache_sets_total',
+            'Total number of cache sets',
+            ['operation', 'status']
+        )
+        self.cache_evictions = Counter(
+            'rag_cache_evictions_total',
+            'Total number of cache evictions',
+            ['reason']
         )
 
-        # Database metrics
-        self.db_query_latency = Histogram(
-            'rag_db_query_duration_seconds',
-            'Database query duration in seconds',
-            ['database', 'operation', 'status'],
-            buckets=(0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5)
+        # Search metrics
+        self.search_latency = Histogram(
+            'rag_search_latency_seconds',
+            'Search operation latency in seconds',
+            ['index', 'operation'],
+            buckets=(0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0)
         )
-        self.db_connection_pool = Gauge(
-            'rag_db_connections_active',
-            'Number of active database connections',
+        self.search_results = Histogram(
+            'rag_search_results_count',
+            'Number of search results returned',
+            ['index'],
+            buckets=(0, 1, 5, 10, 20, 50, 100)
+        )
+        self.search_cache_hit = Counter(
+            'rag_search_cache_hits_total',
+            'Total number of search cache hits',
+            ['index']
+        )
+        self.search_cache_miss = Counter(
+            'rag_search_cache_misses_total',
+            'Total number of search cache misses',
+            ['index']
+        )
+
+        # Document metrics
+        self.document_inserts = Counter(
+            'rag_document_inserts_total',
+            'Total number of document insertions',
+            ['collection']
+        )
+        self.document_updates = Counter(
+            'rag_document_updates_total',
+            'Total number of document updates',
+            ['collection']
+        )
+        self.document_deletes = Counter(
+            'rag_document_deletes_total',
+            'Total number of document deletions',
+            ['collection']
+        )
+        self.document_size_bytes = Histogram(
+            'rag_document_size_bytes',
+            'Document size in bytes',
+            ['collection'],
+            buckets=(100, 1000, 10000, 100000, 1000000)
+        )
+
+        # Health metrics
+        self.db_health_status = Gauge(
+            'rag_db_health_status',
+            'Database health status (0=unhealthy, 1=healthy)',
             ['database']
         )
-        self.db_errors = Counter(
-            'rag_db_errors_total',
-            'Total number of database errors',
+        self.health_check_duration = Histogram(
+            'rag_health_check_duration_seconds',
+            'Health check duration in seconds',
+            ['database'],
+            buckets=(0.01, 0.05, 0.1, 0.25, 0.5, 1.0)
+        )
+        self.health_check_errors = Counter(
+            'rag_health_check_errors_total',
+            'Total number of health check errors',
             ['database', 'error_type']
-        )
-
-        # Model metrics
-        self.model_inference_latency = Histogram(
-            'rag_model_inference_duration_seconds',
-            'Model inference duration in seconds',
-            ['model_type', 'status'],
-            buckets=(0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5)
-        )
-        self.model_batch_size = Histogram(
-            'rag_model_batch_size',
-            'Model batch size',
-            ['model_type'],
-            buckets=(1, 4, 8, 16, 32, 64)
-        )
-
-        # Resource metrics
-        self.memory_usage = Gauge(
-            'rag_memory_usage_bytes',
-            'Memory usage in bytes',
-            ['component']
-        )
-        self.cpu_usage = Gauge(
-            'rag_cpu_usage_percent',
-            'CPU usage percentage',
-            ['component']
-        )
-
-        # Error metrics
-        self.error_counter = Counter(
-            'rag_errors_total',
-            'Total number of errors',
-            ['component', 'error_type', 'severity']
-        )
-
-        # Business metrics
-        self.query_complexity = Histogram(
-            'rag_query_complexity_score',
-            'Query complexity score',
-            buckets=(1, 2, 3, 5, 8, 13)
-        )
-        self.result_relevance = Summary(
-            'rag_result_relevance_score',
-            'Result relevance score'
         )
 
         self.tracer = trace.get_tracer(__name__)
@@ -440,36 +477,35 @@ class MetricsCollector:
         }
 
 class MetricsManager:
-    """Singleton manager for metrics collection and management."""
+    """Singleton metrics manager for the RAG service."""
     
     _instance = None
-    _collector = None
-
-    def __new__(cls):
-        """Ensure singleton pattern."""
-        if cls._instance is None:
-            cls._instance = super(MetricsManager, cls).__new__(cls)
-            cls._collector = MetricsCollector()
-        return cls._instance
-
-    def __getattr__(self, name):
-        """Delegate unknown attributes to collector."""
-        return getattr(self._collector, name)
-
+    
     @classmethod
     def get_instance(cls) -> 'MetricsManager':
-        """Get singleton instance."""
+        """Get or create the singleton instance."""
         if cls._instance is None:
             cls._instance = cls()
         return cls._instance
+    
+    def __init__(self):
+        """Initialize the metrics manager."""
+        if MetricsManager._instance is not None:
+            raise RuntimeError("Use get_instance() to access MetricsManager")
+        self.collector = MetricsCollector()
+        logger.info("metrics_manager_initialized")
+
+    def __getattr__(self, name):
+        """Delegate unknown attributes to collector."""
+        return getattr(self.collector, name)
 
     def reset_metrics(self) -> None:
         """Reset all metrics to initial state."""
-        self._collector = MetricsCollector()
+        self.collector = MetricsCollector()
 
     def get_collector(self) -> MetricsCollector:
         """Get the underlying metrics collector."""
-        return self._collector
+        return self.collector
 
     def with_metrics(self, component: str, method: str):
         """Decorator to automatically record metrics for a function.
@@ -489,7 +525,7 @@ class MetricsManager:
                         return result
                     except Exception as e:
                         error = e
-                        self._collector.record_error(
+                        self.collector.record_error(
                             component=component,
                             error_type=type(e).__name__,
                             severity="error"
@@ -497,7 +533,7 @@ class MetricsManager:
                         raise
                     finally:
                         duration = time.time() - start_time
-                        self._collector.record_request(
+                        self.collector.record_request(
                             method=method,
                             duration=duration,
                             status="error" if error else "success"
@@ -512,7 +548,7 @@ class MetricsManager:
                         return result
                     except Exception as e:
                         error = e
-                        self._collector.record_error(
+                        self.collector.record_error(
                             component=component,
                             error_type=type(e).__name__,
                             severity="error"
@@ -520,11 +556,12 @@ class MetricsManager:
                         raise
                     finally:
                         duration = time.time() - start_time
-                        self._collector.record_request(
+                        self.collector.record_request(
                             method=method,
                             duration=duration,
                             status="error" if error else "success"
                         )
                 return wrapper
             return decorator
+        return decorator
         return decorator 

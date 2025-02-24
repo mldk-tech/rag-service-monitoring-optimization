@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.0.0] - 2024-02-20
 
 ### Added
+
 - Initial release of the RAG Service
 - Core retrieval functionality with multiple strategies:
   - Semantic search using embeddings
@@ -47,44 +48,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Contributing guidelines
   - Security policy
 
-### Changed
-- N/A (initial release)
-
-### Deprecated
-- N/A (initial release)
-
-### Removed
-- N/A (initial release)
-
-### Fixed
-- N/A (initial release)
-
-### Security
 - Initial security features implementation
 - Dependency security audit
 - Code security review
 
 ## [Unreleased]
 
-### Added
+### Add
+
 - Planned features for next release
 
 ### Changed
+
 - Upcoming changes and improvements
 
 ### Deprecated
+
 - Features to be deprecated
 
 ### Removed
+
 - Features to be removed
 
 ### Fixed
+
 - Issues to be fixed
 
 ### Security
+
 - Security updates and improvements
 
 ## Types of Changes
+
 - `Added` for new features
 - `Changed` for changes in existing functionality
 - `Deprecated` for soon-to-be removed features
@@ -93,9 +88,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Security` for vulnerability fixes
 
 ## How to Update
+
 1. Check the changelog before upgrading
 2. Follow upgrade guides when provided
 3. Test in staging environment first
 4. Report any issues encountered
 
-[1.0.0]: https://github.com/username/rag-service/releases/tag/v1.0.0 
+[1.0.0]: https://github.com/username/rag-service/releases/tag/v1.0.0

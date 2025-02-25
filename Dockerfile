@@ -22,39 +22,7 @@ COPY config /app/config
 # Install Python dependencies
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir . && \
-    pip install --no-cache-dir "uvicorn[standard]" && \
-    # OpenTelemetry dependencies
-    pip install --no-cache-dir \
-        opentelemetry-api \
-        opentelemetry-sdk \
-        opentelemetry-exporter-otlp \
-        opentelemetry-instrumentation \
-        opentelemetry-instrumentation-fastapi \
-        opentelemetry-instrumentation-requests \
-        opentelemetry-instrumentation-elasticsearch \
-        opentelemetry-instrumentation-pymongo \
-        opentelemetry-instrumentation-redis \
-        # LLM and embedding libraries
-        openai \
-        anthropic \
-        langchain \
-        langchain-openai \
-        langchain-anthropic \
-        sentence-transformers \
-        # Vector database clients
-        pymilvus \
-        weaviate-client \
-        qdrant-client \
-        # Graph database client
-        neo4j \
-        # Advanced caching
-        redis>=4.2.0 \
-        cachetools \
-        # Performance optimization
-        faiss-cpu \
-        pydantic \
-        structlog \
-        prometheus-client
+    pip install --no-cache-dir uvicorn
 
 # Replace aioredis with redis.asyncio in your code
 RUN find /app -type f -name "*.py" -exec sed -i 's/import aioredis/from redis import asyncio as aioredis/g' {} \;

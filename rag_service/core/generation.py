@@ -10,10 +10,14 @@ from contextlib import asynccontextmanager
 import numpy as np
 from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 from typing_extensions import AsyncGenerator
+import structlog
 
 from rag_service.monitoring.metrics import MetricsManager
+
+# Initialize logger
+logger = structlog.get_logger(__name__)
 
 class GenerationError(Exception):
     """Base class for generation-related errors."""
@@ -76,7 +80,7 @@ class GenerationConfig(BaseModel):
     device: str = Field("cpu")
     batch_size: int = Field(1, ge=1)
 
-    @validator("stop_sequences")
+    @field_validator("stop_sequences")
     def validate_stop_sequences(cls, v):
         """Validate stop sequences."""
         if v is not None:
@@ -621,7 +625,6 @@ class GenerationManager:
                     "stop_reason": response.stop_reason
                 }
             }
-            
         except Exception as e:
             logger.error(
                 "anthropic_generation_error",

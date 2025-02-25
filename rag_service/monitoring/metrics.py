@@ -33,7 +33,7 @@ class MetricsManager:
         if cls._instance is None:
             cls._instance = MetricsManager()
         return cls._instance
-    
+
     def __init__(self):
         """Initialize metrics manager with Prometheus and OpenTelemetry metrics."""
         # Prometheus metrics
@@ -57,14 +57,14 @@ class MetricsManager:
         )
         
         self.cache_hits = Counter(
-            'rag_cache_hits_total', 
-            'Total number of cache hits', 
+            'rag_cache_hits_total',
+            'Total number of cache hits',
             ['cache_type', 'component']
         )
         
         self.cache_misses = Counter(
-            'rag_cache_misses_total', 
-            'Total number of cache misses', 
+            'rag_cache_misses_total',
+            'Total number of cache misses',
             ['cache_type', 'component']
         )
         
@@ -112,7 +112,7 @@ class MetricsManager:
             'Number of documents in the system', 
             ['index']
         )
-        
+
         # OpenTelemetry metrics
         try:
             self.meter = metrics.get_meter_provider().get_meter("rag_service")
@@ -314,9 +314,9 @@ class MetricsManager:
             async def async_wrapper(*args, **kwargs):
                 self.increment_active_requests(component)
                 start_time = time.time()
+                status = "success"
                 try:
                     result = await func(*args, **kwargs)
-                    status = "success"
                     return result
                 except Exception as e:
                     status = "error"
@@ -336,9 +336,9 @@ class MetricsManager:
             def sync_wrapper(*args, **kwargs):
                 self.increment_active_requests(component)
                 start_time = time.time()
+                status = "success"
                 try:
                     result = func(*args, **kwargs)
-                    status = "success"
                     return result
                 except Exception as e:
                     status = "error"
@@ -356,6 +356,7 @@ class MetricsManager:
             
             if asyncio.iscoroutinefunction(func):
                 return async_wrapper
-            return sync_wrapper
+            else:
+                return sync_wrapper
         
         return decorator 

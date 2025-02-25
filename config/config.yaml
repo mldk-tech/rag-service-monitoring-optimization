@@ -25,21 +25,65 @@ database:
     sniff_on_start: true
     sniff_on_connection_fail: true
     sniffer_timeout: 60
+    embedding_dimensions: 768
+    shards: 1
+    replicas: 1
+    refresh_on_write: true
   mongodb:
     uri: "mongodb://mongodb:27017"
-    database: "rag_service"
-    collection: "documents"
-    max_connections: 100
-    timeout: 5000
-    retry_writes: true
+    database_name: "rag_service"
+    collection_name: "documents"
+    server_selection_timeout_ms: 5000
+    connect_timeout_ms: 10000
+    socket_timeout_ms: 30000
+    max_pool_size: 100
+    min_pool_size: 10
   redis:
     host: "redis"
     port: 6379
     db: 0
+    key_prefix: "doc:"
+    ttl: 3600
     max_connections: 100
     socket_timeout: 5
     socket_connect_timeout: 5
     retry_on_timeout: true
+    use_redisearch: false
+  weaviate:
+    url: "http://weaviate:8080"
+    api_key: "${WEAVIATE_API_KEY}"
+    class_name: "Document"
+    vectorizer: "text2vec-transformers"
+    timeout: 30
+    batch_size: 100
+    batch_timeout_retries: 3
+    batch_num_workers: 1
+  milvus:
+    host: "milvus"
+    port: 19530
+    user: ""
+    password: ""
+    secure: false
+    connection_alias: "default"
+    collection_name: "documents"
+    embedding_dim: 768
+    index_params:
+      index_type: "IVF_FLAT"
+      metric_type: "L2"
+      params:
+        nlist: 1024
+    search_params:
+      metric_type: "L2"
+      params:
+        nprobe: 10
+  neo4j:
+    uri: "neo4j://neo4j:7687"
+    username: "neo4j"
+    password: "${NEO4J_PASSWORD}"
+    database: "neo4j"
+    max_connection_lifetime: 3600
+    max_connection_pool_size: 100
+    connection_acquisition_timeout: 60
 
 retrieval:
   strategies:
@@ -50,24 +94,37 @@ retrieval:
         model_name: "all-MiniLM-L6-v2"
         similarity_threshold: 0.7
         max_context_length: 512
+        database: "weaviate"  # Can be elasticsearch, weaviate, or milvus
     - name: "keyword"
       enabled: true
       weight: 0.5
       params:
         min_score: 0.3
         boost_exact_matches: true
+        database: "elasticsearch"  # Best for keyword search
     - name: "hybrid"
       enabled: true
       weight: 0.8
       params:
         semantic:
           weight: 0.7
+          database: "weaviate"
         keyword:
           weight: 0.3
+          database: "elasticsearch"
+    - name: "graph"
+      enabled: true
+      weight: 0.7
+      params:
+        database: "neo4j"
+        max_hops: 2
+        relationship_types: ["MENTIONS", "RELATED_TO"]
+        min_relevance: 0.5
   cache:
     enabled: true
     ttl: 3600
     max_size: 10000
+    storage: "redis"  # Use Redis for caching
   chunk_size: 512
   overlap: 50
   max_results: 10
@@ -116,6 +173,7 @@ generation:
   cache:
     enabled: true
     ttl: 3600
+    storage: "redis"  # Use Redis for caching
 
 optimization:
   strategies:
@@ -131,6 +189,7 @@ optimization:
       params:
         variance_threshold: 0.2
         efficiency_threshold: 0.7
+        databases: ["elasticsearch", "weaviate", "milvus", "neo4j"]
     - name: "resource_optimization"
       enabled: true
       schedule: "hourly"
@@ -200,6 +259,9 @@ monitoring:
     latency_p95: 1.0
     memory_usage: 0.9
     cpu_usage: 0.8
+    database_latency: 0.5
+    vector_search_latency: 0.8
+    graph_query_latency: 1.0
 
 api:
   host: "0.0.0.0"

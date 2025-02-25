@@ -1,7 +1,6 @@
 """Enhanced retrieval module for fetching and ranking relevant documents."""
 
 from typing import List, Dict, Any, Optional, Tuple, Set, Union
-import logging
 import time
 from datetime import datetime, timedelta
 import numpy as np
@@ -798,7 +797,7 @@ class RetrievalManager:
                 
                 span.set_attribute("result_count", len(results))
                 return results
-                
+            
             except Exception as e:
                 span.set_status(Status(StatusCode.ERROR))
                 span.record_exception(e)

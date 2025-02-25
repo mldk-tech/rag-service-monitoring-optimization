@@ -1,4 +1,49 @@
-"""Enhanced database management module with comprehensive features and safety mechanisms."""
+"""Enhanced database management module with comprehensive features and safety mechanisms.
+
+This module is now a wrapper around the modular database implementations.
+It imports and re-exports the components from the database package.
+"""
+
+# Import all components from the database package
+from rag_service.core.database import (
+    # Base components
+    Document,
+    DatabaseError,
+    ConnectionError,
+    QueryError,
+    QueryTimeout,
+    ConnectionState,
+    DatabaseConfig,
+    
+    # Database manager
+    DatabaseManager,
+    
+    # Database clients
+    ElasticsearchClient,
+    MongoDBClient,
+    RedisClient,
+    WeaviateClient,
+    MilvusClient,
+    Neo4jClient
+)
+
+# For backward compatibility
+__all__ = [
+    'Document',
+    'DatabaseError',
+    'ConnectionError',
+    'QueryError',
+    'QueryTimeout',
+    'ConnectionState',
+    'DatabaseConfig',
+    'DatabaseManager',
+    'ElasticsearchClient',
+    'MongoDBClient',
+    'RedisClient',
+    'WeaviateClient',
+    'MilvusClient',
+    'Neo4jClient'
+]
 
 from typing import Dict, Any, Optional, List
 from enum import Enum
@@ -72,53 +117,6 @@ class DatabaseConfig(BaseModel):
     def validate_es_config(cls, v):
         if not v.hosts:
             raise ValueError("At least one Elasticsearch host must be specified")
-        return v
-
-class DatabaseError(Exception):
-    """Enhanced base class for database-related errors."""
-    def __init__(self, message: str, error_type: str, retryable: bool = False):
-        super().__init__(message)
-        self.error_type = error_type
-        self.retryable = retryable
-        self.timestamp = datetime.utcnow()
-
-class ConnectionError(DatabaseError):
-    """Enhanced database connection errors."""
-    def __init__(self, message: str, service: str):
-        super().__init__(message, "connection", retryable=True)
-        self.service = service
-
-class QueryError(DatabaseError):
-    """Enhanced database query errors."""
-    def __init__(self, message: str, query_type: str, query_id: str):
-        super().__init__(message, "query", retryable=False)
-        self.query_type = query_type
-        self.query_id = query_id
-
-class QueryTimeout(DatabaseError):
-    """Query timeout errors."""
-    def __init__(self, query_id: str, timeout: float):
-        super().__init__(
-            f"Query {query_id} timed out after {timeout} seconds",
-            "timeout",
-            retryable=True
-        )
-        self.query_id = query_id
-        self.timeout = timeout
-
-class Document(BaseModel):
-    """Enhanced document model with validation."""
-    id: str = Field(..., min_length=1)
-    content: str = Field(..., min_length=1)
-    metadata: Dict[str, Any] = Field(default_factory=dict)
-    embedding: Optional[List[float]] = Field(None, min_items=1)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
-    
-    @field_validator("embedding")
-    def validate_embedding(cls, v):
-        if v is not None and not all(isinstance(x, (int, float)) for x in v):
-            raise ValueError("Embedding must contain only numbers")
         return v
 
 class ConnectionPool:

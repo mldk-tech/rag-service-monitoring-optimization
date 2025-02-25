@@ -49,6 +49,30 @@ This project provides a production-ready RAG service with:
 - Token usage tracking
 - Adaptive caching strategies
 
+### Database Implementations
+
+The RAG service supports multiple database backends for different retrieval strategies and use cases:
+
+### Traditional Databases
+- **Elasticsearch**: For keyword search and text-based retrieval
+- **MongoDB**: For document storage and metadata-based filtering
+- **Redis**: For caching and fast key-value lookups
+
+### Vector Databases
+- **Weaviate**: For semantic search with vector embeddings
+- **Milvus**: For high-performance vector similarity search
+
+### Graph Databases
+- **Neo4j**: For graph-based retrieval and relationship exploration
+
+Each database implementation follows a common interface defined in `DatabaseClient`, making it easy to switch between different backends or use multiple databases simultaneously for different retrieval strategies.
+
+The modular architecture allows for:
+- Using the most appropriate database for each retrieval strategy
+- Combining results from multiple databases for hybrid retrieval
+- Easy addition of new database backends
+- Comprehensive monitoring and metrics for each database
+
 ## Getting Started
 
 ### Prerequisites

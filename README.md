@@ -1,145 +1,281 @@
-# RAG Service with Monitoring and Optimization
+# RAG Service Monitoring & Optimization
 
-A production-ready Retrieval Augmented Generation (RAG) service with comprehensive monitoring, optimization, and observability features.
+A comprehensive RAG (Retrieval-Augmented Generation) service with advanced monitoring and optimization capabilities.
 
-## Features
+## Overview
+
+This project provides a production-ready RAG service with:
 
 - **Advanced RAG Pipeline**: Sophisticated retrieval system with multiple backends (Elasticsearch, Vector DB, Graph DB)
-- **Performance Optimization**: Automated performance tuning with metrics-driven optimization
-- **Comprehensive Monitoring**: Prometheus metrics, OpenTelemetry tracing, and health checks
+- **Advanced Retrieval Strategies**: Semantic, keyword, hybrid, and ensemble search methods
+- **Comprehensive Monitoring**: Full OpenTelemetry integration, Prometheus metrics, and health checks
+- **Performance Optimization**: Automated tuning, caching, vector dimension management, and resource optimization
 - **Production-Ready**: Built with security, scalability, and reliability in mind
 - **Multi-Level Caching**: Tiered caching system with adaptive optimization
 - **Query Processing**: Advanced query analysis and expansion capabilities
 - **Observability**: Detailed logging, metrics, and tracing for every component
+- **Robust Testing**: Unit, integration, and end-to-end tests
+- **Infrastructure as Code**: Terraform configurations for AWS deployment
 
-## Architecture
+## Features
 
-The service is built with a modular architecture focusing on:
+### Core RAG Functionality
 
-- Configuration Management
-- Database Management (Elasticsearch, MongoDB, Redis)
-- Retrieval System
-- Query Processing
-- Performance Optimization
-- Monitoring and Metrics
-- Health Monitoring
-- Security Implementation
+- Sophisticated retrieval pipeline with multiple backend options
+- Multiple retrieval strategies (semantic, keyword, hybrid, ensemble)
+- Support for various LLM providers (OpenAI, Anthropic, local models)
+- Document management with vector embeddings
+- Graph-based knowledge representation
+- Streaming generation support
+- Metadata filtering
+- Advanced query processing and expansion
 
-## Requirements
+### Monitoring & Observability
 
-- Python 3.8+
-- Elasticsearch 8.0+
-- MongoDB 5.0+
-- Redis 6.0+
-- Docker (for containerization)
-- Kubernetes (for orchestration)
+- OpenTelemetry integration for distributed tracing
+- Prometheus metrics for performance monitoring
+- Grafana dashboards for visualization
+- Jaeger for trace visualization
+- Comprehensive logging with correlation IDs
+- Health checks and alerting
+- Performance benchmarking tools
 
-## Installation
+### Optimization Features
+
+- Automated performance tuning based on metrics
+- Multi-level response caching for improved latency
+- Vector dimension management for consistent embeddings
+- Resource usage optimization
+- Token usage tracking
+- Adaptive caching strategies
+
+## Getting Started
+
+### Prerequisites
+
+- Docker and Docker Compose
+- Python 3.10+
+- AWS account (for production deployment)
+
+### Local Development Setup
 
 1. Clone the repository:
-```bash
-git clone https://github.com/your-org/rag-service.git
-cd rag-service
-```
+   ```bash
+   git clone https://github.com/yourusername/rag-service-monitoring-optimization.git
+   cd rag-service-monitoring-optimization
+   ```
 
-2. Install dependencies:
-```bash
-pip install -e ".[dev]"
-```
+2. Set up the environment:
+   ```bash
+   python -m venv venv
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   pip install -e .
+   ```
 
-3. Set up environment variables:
-```bash
-cp .env.example .env
-# Edit .env with your configuration
-```
+3. Set up the monitoring environment:
+   ```bash
+   chmod +x scripts/setup_monitoring.sh
+   ./scripts/setup_monitoring.sh
+   ```
 
-## Configuration
+4. Start the services:
+   ```bash
+   docker-compose up -d
+   ```
 
-The service uses a hierarchical configuration system:
+5. Access the services:
+   - RAG Service API: http://localhost:8000
+   - Grafana: http://localhost:3000
+   - Prometheus: http://localhost:9091
+   - Jaeger: http://localhost:16686
 
-1. Default configuration in `config/default.yaml`
-2. Environment-specific configuration in `config/{env}.yaml`
-3. Environment variables (prefixed with `RAG_`)
-4. Runtime configuration via API
+### Configuration
 
-See `config/default.yaml` for all available options.
+The service can be configured through:
 
-## Usage
+- Environment variables
+- Configuration files in the `config/` directory
+- Command-line arguments
 
-1. Start the service:
-```bash
-python -m rag_service
-```
+See the [Configuration Guide](docs/configuration.md) for details.
 
-2. Use the API:
-```python
-import httpx
+## Monitoring
 
-async with httpx.AsyncClient() as client:
-    response = await client.post(
-        "http://localhost:8000/api/v1/retrieve",
-        json={
-            "query": "What are the main exports of Israel?",
-            "options": {"top_k": 5}
-        }
-    )
-    results = response.json()
-```
+The monitoring system provides:
 
-## Development
+1. **Real-time metrics** on:
+   - Request rates and latencies
+   - Retrieval performance by strategy
+   - Generation performance by model
+   - Token usage
+   - Cache hit rates
+   - Error rates
+   - Resource utilization
 
-1. Set up development environment:
-```bash
-pip install -e ".[dev]"
-```
+2. **Distributed tracing** for:
+   - End-to-end request flows
+   - Component-level performance
+   - Bottleneck identification
+   - Cross-service dependencies
 
-2. Run tests:
+3. **Logging** with:
+   - Structured log formats
+   - Correlation with traces
+   - Log level configuration
+   - Centralized log management
+
+For detailed information, see the [Monitoring Guide](README-TELEMETRY.md).
+
+## Optimization
+
+The service includes several optimization features:
+
+1. **Retrieval Optimization**:
+   - Strategy selection based on query characteristics
+   - Hybrid search with weighted scoring
+   - Ensemble methods for improved recall
+   - Automated backend selection
+
+2. **Generation Optimization**:
+   - Model selection based on query complexity
+   - Prompt optimization
+   - Response caching
+   - Token usage optimization
+
+3. **Resource Optimization**:
+   - Connection pooling
+   - Batch processing
+   - Asynchronous operations
+   - Adaptive resource allocation
+
+4. **Caching Optimization**:
+   - Multi-level caching (memory, disk, distributed)
+   - Cache eviction strategies
+   - Adaptive TTL based on content type
+   - Cache warming for common queries
+
+For more details, see the [Optimization Guide](docs/optimization.md).
+
+## Security
+
+The service implements several security features:
+
+- API key authentication
+- Rate limiting
+- Input validation
+- Secure configuration management
+- Audit logging
+- Role-based access control
+
+For more information, see the [Security Guide](docs/security.md).
+
+## Testing
+
+The project includes comprehensive tests:
+
+- **Unit tests**: Test individual components
+- **Integration tests**: Test component interactions
+- **End-to-end tests**: Test the complete system
+- **Load tests**: Test performance under load
+- **Security tests**: Verify security controls
+
+Run the tests with:
 ```bash
 pytest
 ```
 
-3. Format code:
+Generate test telemetry data with:
 ```bash
-black .
-isort .
+python scripts/generate_test_telemetry.py --duration 300 --rate 5
 ```
-
-4. Run linters:
-```bash
-ruff check .
-mypy .
-```
-
-## Monitoring
-
-The service exposes:
-
-- Prometheus metrics at `/metrics`
-- Health check at `/health`
-- OpenTelemetry traces to configured endpoint
 
 ## Deployment
 
-1. Build Docker image:
-```bash
-docker build -t rag-service .
-```
+The service can be deployed to AWS using Terraform:
 
-2. Deploy to Kubernetes:
-```bash
-kubectl apply -f k8s/
-```
+1. Configure AWS credentials:
+   ```bash
+   aws configure
+   ```
 
-See `deployment/` directory for detailed deployment configurations.
+2. Initialize Terraform:
+   ```bash
+   cd terraform
+   terraform init
+   ```
+
+3. Apply the configuration:
+   ```bash
+   terraform apply -var-file=environments/dev.tfvars
+   ```
+
+The deployment includes:
+- ECS Fargate for containerized services
+- Elasticsearch for document storage and search
+- MongoDB for metadata and state management
+- Redis for caching
+- OpenTelemetry Collector for telemetry processing
+- Prometheus and Grafana for monitoring
+- Jaeger for distributed tracing
+
+For more details, see the [Deployment Guide](docs/deployment.md).
+
+## Architecture
+
+The RAG service follows a modular architecture:
+
+### Core Components
+
+1. **API Layer**: FastAPI-based REST API with authentication and rate limiting
+2. **Retrieval Engine**: Manages document retrieval across multiple backends
+3. **Generation Service**: Handles LLM integration and response generation
+4. **Document Processor**: Manages document ingestion, chunking, and embedding
+5. **Monitoring Subsystem**: Collects and exposes metrics and traces
+6. **Caching Layer**: Multi-level caching for queries and responses
+
+### Data Flow
+
+1. User submits a query through the API
+2. Query processor analyzes and expands the query
+3. Retrieval engine fetches relevant documents from multiple backends
+4. Context builder assembles retrieved documents into context
+5. Generation service produces a response using the context and query
+6. Response is returned to the user and cached for future use
+
+For a detailed architecture diagram, see the [Architecture Guide](docs/architecture.md).
+
+## Performance
+
+The RAG service is designed for high performance:
+
+- **Throughput**: Handles 100+ queries per second
+- **Latency**: P95 response time under 2 seconds
+- **Scalability**: Horizontal scaling for all components
+- **Reliability**: 99.9% uptime with fault tolerance
+
+Performance benchmarks are available in the [Performance Guide](docs/performance.md).
 
 ## Contributing
+
+Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+### Development Workflow
 
 1. Fork the repository
 2. Create a feature branch
 3. Make your changes
-4. Run tests and linters
-5. Submit a pull request
+4. Add tests for your changes
+5. Run the test suite
+6. Submit a pull request
 
 ## License
 
-MIT License - see LICENSE file for details
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## Acknowledgements
+
+- OpenTelemetry for observability framework
+- Elasticsearch, MongoDB, and Redis for storage solutions
+- FastAPI for the web framework
+- Prometheus and Grafana for monitoring
+- Terraform for infrastructure as code

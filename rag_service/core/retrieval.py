@@ -758,85 +758,503 @@ class RetrievalManager:
     async def _semantic_search(
         self,
         query: str,
-        filters: Optional[Dict[str, Any]],
-        top_k: int,
-        params: Dict[str, Any]
+        filters: Optional[Dict[str, Any]] = None,
+        top_k: int = 10
     ) -> List[RetrievalResult]:
-        """Execute semantic search with embeddings."""
-        # Generate query embedding
-        query_embedding = await self._get_query_embedding(query)
-        
-        # Search using vector similarity
-        results = await self.db_manager.search_by_vector(
-            query_embedding,
-            top_k=top_k,
-            min_score=params.get("similarity_threshold", 0.7) if params else 0.7,
-            filters=filters or {}
-        )
-        
-        return results
+        """Perform semantic search using vector embeddings."""
+        with self.tracer.start_as_current_span("semantic_search") as span:
+            span.set_attribute("query", query)
+            span.set_attribute("top_k", top_k)
+            
+            start_time = time.time()
+            
+            try:
+                # Generate embedding for the query
+                query_embedding = await self._generate_embedding(query)
+                
+                # Search documents by vector similarity
+                documents = await self.db_manager.search_by_vector(
+                    index=self.config["elasticsearch"]["index"],
+                    vector=query_embedding,
+                    filters=filters,
+                    top_k=top_k
+                )
+                
+                # Convert to retrieval results
+                results = []
+                for doc in documents:
+                    score = doc.metadata.get("score", 0.0)
+                    results.append(
+                        RetrievalResult(
+                            document=doc,
+                            score=score,
+                            retrieval_time=time.time() - start_time,
+                            source="elasticsearch",
+                            strategy=RetrievalStrategy.SEMANTIC,
+                            confidence=score,
+                            metadata={"vector_search": True}
+                        )
+                    )
+                
+                span.set_attribute("result_count", len(results))
+                return results
+                
+            except Exception as e:
+                span.set_status(Status(StatusCode.ERROR))
+                span.record_exception(e)
+                logger.error(
+                    "semantic_search_error",
+                    error=str(e),
+                    query=query,
+                    exc_info=True
+                )
+                raise RetrievalError(
+                    f"Semantic search failed: {str(e)}",
+                    "SEMANTIC_SEARCH_ERROR"
+                )
 
     async def _keyword_search(
         self,
         query: str,
-        filters: Optional[Dict[str, Any]],
-        top_k: int,
-        params: Dict[str, Any]
+        filters: Optional[Dict[str, Any]] = None,
+        top_k: int = 10
     ) -> List[RetrievalResult]:
-        """Execute keyword-based search."""
-        # Implement keyword search
-        pass
+        """Perform keyword-based search using text analysis."""
+        with self.tracer.start_as_current_span("keyword_search") as span:
+            span.set_attribute("query", query)
+            span.set_attribute("top_k", top_k)
+            
+            start_time = time.time()
+            
+            try:
+                # Prepare the search query with BM25 scoring
+                search_query = {
+                    "query": {
+                        "bool": {
+                            "must": [
+                                {
+                                    "match": {
+                                        "content": {
+                                            "query": query,
+                                            "operator": "or",
+                                            "fuzziness": "AUTO"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+                
+                # Add filters if provided
+                if filters:
+                    for key, value in filters.items():
+                        search_query["query"]["bool"].setdefault("filter", [])
+                        search_query["query"]["bool"]["filter"].append(
+                            {"term": {f"metadata.{key}": value}}
+                        )
+                
+                # Execute the search
+                documents = await self.db_manager.search_documents(
+                    index=self.config["elasticsearch"]["index"],
+                    query=search_query,
+                    size=top_k
+                )
+                
+                # Convert to retrieval results
+                results = []
+                for doc in documents:
+                    score = doc.metadata.get("score", 0.0)
+                    results.append(
+                        RetrievalResult(
+                            document=doc,
+                            score=score,
+                            retrieval_time=time.time() - start_time,
+                            source="elasticsearch",
+                            strategy=RetrievalStrategy.KEYWORD,
+                            confidence=score,
+                            metadata={"keyword_search": True}
+                        )
+                    )
+                
+                span.set_attribute("result_count", len(results))
+                return results
+                
+            except Exception as e:
+                span.set_status(Status(StatusCode.ERROR))
+                span.record_exception(e)
+                logger.error(
+                    "keyword_search_error",
+                    error=str(e),
+                    query=query,
+                    exc_info=True
+                )
+                raise RetrievalError(
+                    f"Keyword search failed: {str(e)}",
+                    "KEYWORD_SEARCH_ERROR"
+                )
 
     async def _hybrid_search(
         self,
         query: str,
-        filters: Optional[Dict[str, Any]],
-        top_k: int,
-        params: Dict[str, Any]
+        filters: Optional[Dict[str, Any]] = None,
+        top_k: int = 10
     ) -> List[RetrievalResult]:
-        """Execute hybrid search combining multiple approaches."""
-        # Implement hybrid search
-        pass
+        """Perform hybrid search combining semantic and keyword approaches."""
+        with self.tracer.start_as_current_span("hybrid_search") as span:
+            span.set_attribute("query", query)
+            span.set_attribute("top_k", top_k)
+            
+            start_time = time.time()
+            
+            try:
+                # Run both search types in parallel
+                semantic_task = asyncio.create_task(
+                    self._semantic_search(query, filters, top_k)
+                )
+                keyword_task = asyncio.create_task(
+                    self._keyword_search(query, filters, top_k)
+                )
+                
+                # Wait for both to complete
+                semantic_results, keyword_results = await asyncio.gather(
+                    semantic_task, keyword_task
+                )
+                
+                # Combine and deduplicate results
+                combined_results = {}
+                
+                # Process semantic results first
+                for result in semantic_results:
+                    doc_id = result.document.id
+                    combined_results[doc_id] = result
+                
+                # Process keyword results, combining scores for duplicates
+                for result in keyword_results:
+                    doc_id = result.document.id
+                    if doc_id in combined_results:
+                        # Document exists in both result sets, combine scores
+                        existing = combined_results[doc_id]
+                        semantic_weight = self.config.get("hybrid_weights", {}).get("semantic", 0.7)
+                        keyword_weight = self.config.get("hybrid_weights", {}).get("keyword", 0.3)
+                        
+                        # Calculate weighted score
+                        combined_score = (
+                            existing.score * semantic_weight + 
+                            result.score * keyword_weight
+                        )
+                        
+                        # Update the existing result
+                        combined_results[doc_id] = RetrievalResult(
+                            document=existing.document,
+                            score=combined_score,
+                            retrieval_time=time.time() - start_time,
+                            source="hybrid",
+                            strategy=RetrievalStrategy.HYBRID,
+                            confidence=combined_score,
+                            metadata={
+                                "semantic_score": existing.score,
+                                "keyword_score": result.score,
+                                "hybrid_search": True
+                            }
+                        )
+                    else:
+                        # New document, add to results
+                        combined_results[doc_id] = result
+                
+                # Convert to list and sort by score
+                results = list(combined_results.values())
+                results.sort(key=lambda x: x.score, reverse=True)
+                
+                # Limit to top_k
+                results = results[:top_k]
+                
+                span.set_attribute("result_count", len(results))
+                return results
+                
+            except Exception as e:
+                span.set_status(Status(StatusCode.ERROR))
+                span.record_exception(e)
+                logger.error(
+                    "hybrid_search_error",
+                    error=str(e),
+                    query=query,
+                    exc_info=True
+                )
+                raise RetrievalError(
+                    f"Hybrid search failed: {str(e)}",
+                    "HYBRID_SEARCH_ERROR"
+                )
 
     async def _dense_search(
         self,
         query: str,
-        filters: Optional[Dict[str, Any]],
-        top_k: int,
-        params: Dict[str, Any]
+        filters: Optional[Dict[str, Any]] = None,
+        top_k: int = 10
     ) -> List[RetrievalResult]:
-        """Execute dense vector search."""
-        # Implement dense search
-        pass
+        """Perform dense vector search using a specialized embedding model."""
+        with self.tracer.start_as_current_span("dense_search") as span:
+            span.set_attribute("query", query)
+            span.set_attribute("top_k", top_k)
+            
+            start_time = time.time()
+            
+            try:
+                # Generate dense embedding for the query
+                # This uses a different model than the standard embedding model
+                # For now, we'll use the same method but in a real implementation
+                # this would use a different model or approach
+                query_embedding = await self._generate_dense_embedding(query)
+                
+                # Search documents by vector similarity
+                documents = await self.db_manager.search_by_vector(
+                    index=self.config["elasticsearch"]["dense_index"],
+                    vector=query_embedding,
+                    vector_field="dense_embedding",
+                    filters=filters,
+                    top_k=top_k
+                )
+                
+                # Convert to retrieval results
+                results = []
+                for doc in documents:
+                    score = doc.metadata.get("score", 0.0)
+                    results.append(
+                        RetrievalResult(
+                            document=doc,
+                            score=score,
+                            retrieval_time=time.time() - start_time,
+                            source="elasticsearch",
+                            strategy=RetrievalStrategy.DENSE,
+                            confidence=score,
+                            metadata={"dense_search": True}
+                        )
+                    )
+                
+                span.set_attribute("result_count", len(results))
+                return results
+                
+            except Exception as e:
+                span.set_status(Status(StatusCode.ERROR))
+                span.record_exception(e)
+                logger.error(
+                    "dense_search_error",
+                    error=str(e),
+                    query=query,
+                    exc_info=True
+                )
+                # Fall back to semantic search if dense search fails
+                logger.info("Falling back to semantic search after dense search failure")
+                return await self._semantic_search(query, filters, top_k)
 
     async def _sparse_search(
         self,
         query: str,
-        filters: Optional[Dict[str, Any]],
-        top_k: int,
-        params: Dict[str, Any]
+        filters: Optional[Dict[str, Any]] = None,
+        top_k: int = 10
     ) -> List[RetrievalResult]:
-        """Execute sparse vector search."""
-        # Implement sparse search
-        pass
+        """Perform sparse vector search using techniques like BM25 or SPLADE."""
+        with self.tracer.start_as_current_span("sparse_search") as span:
+            span.set_attribute("query", query)
+            span.set_attribute("top_k", top_k)
+            
+            start_time = time.time()
+            
+            try:
+                # For now, this is similar to keyword search but could be enhanced
+                # with SPLADE or other sparse embedding techniques in the future
+                search_query = {
+                    "query": {
+                        "bool": {
+                            "must": [
+                                {
+                                    "match": {
+                                        "content": {
+                                            "query": query,
+                                            "operator": "or",
+                                            "boost": 2.0
+                                        }
+                                    }
+                                }
+                            ],
+                            "should": [
+                                {
+                                    "match_phrase": {
+                                        "content": {
+                                            "query": query,
+                                            "boost": 3.0,
+                                            "slop": 2
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+                
+                # Add filters if provided
+                if filters:
+                    for key, value in filters.items():
+                        search_query["query"]["bool"].setdefault("filter", [])
+                        search_query["query"]["bool"]["filter"].append(
+                            {"term": {f"metadata.{key}": value}}
+                        )
+                
+                # Execute the search
+                documents = await self.db_manager.search_documents(
+                    index=self.config["elasticsearch"]["index"],
+                    query=search_query,
+                    size=top_k
+                )
+                
+                # Convert to retrieval results
+                results = []
+                for doc in documents:
+                    score = doc.metadata.get("score", 0.0)
+                    results.append(
+                        RetrievalResult(
+                            document=doc,
+                            score=score,
+                            retrieval_time=time.time() - start_time,
+                            source="elasticsearch",
+                            strategy=RetrievalStrategy.SPARSE,
+                            confidence=score,
+                            metadata={"sparse_search": True}
+                        )
+                    )
+                
+                span.set_attribute("result_count", len(results))
+                return results
+                
+            except Exception as e:
+                span.set_status(Status(StatusCode.ERROR))
+                span.record_exception(e)
+                logger.error(
+                    "sparse_search_error",
+                    error=str(e),
+                    query=query,
+                    exc_info=True
+                )
+                raise RetrievalError(
+                    f"Sparse search failed: {str(e)}",
+                    "SPARSE_SEARCH_ERROR"
+                )
 
     async def _ensemble_search(
         self,
         query: str,
-        filters: Optional[Dict[str, Any]],
-        top_k: int,
-        params: Dict[str, Any]
+        filters: Optional[Dict[str, Any]] = None,
+        top_k: int = 10
     ) -> List[RetrievalResult]:
-        """Execute ensemble search combining multiple strategies."""
-        # Implement ensemble search
-        pass
+        """Perform ensemble search combining multiple retrieval strategies."""
+        with self.tracer.start_as_current_span("ensemble_search") as span:
+            span.set_attribute("query", query)
+            span.set_attribute("top_k", top_k)
+            
+            start_time = time.time()
+            
+            try:
+                # Define which strategies to use in the ensemble
+                strategies = [
+                    (self._semantic_search, self.config.get("ensemble_weights", {}).get("semantic", 0.4)),
+                    (self._keyword_search, self.config.get("ensemble_weights", {}).get("keyword", 0.2)),
+                    (self._dense_search, self.config.get("ensemble_weights", {}).get("dense", 0.3)),
+                    (self._sparse_search, self.config.get("ensemble_weights", {}).get("sparse", 0.1))
+                ]
+                
+                # Create tasks for all strategies
+                tasks = []
+                for strategy_func, _ in strategies:
+                    task = asyncio.create_task(strategy_func(query, filters, top_k))
+                    tasks.append(task)
+                
+                # Wait for all tasks to complete
+                all_results = await asyncio.gather(*tasks, return_exceptions=True)
+                
+                # Process results, handling any exceptions
+                combined_results = {}
+                for i, results in enumerate(all_results):
+                    if isinstance(results, Exception):
+                        logger.warning(
+                            "ensemble_strategy_failed",
+                            strategy=strategies[i][0].__name__,
+                            error=str(results)
+                        )
+                        continue
+                        
+                    strategy_weight = strategies[i][1]
+                    
+                    for result in results:
+                        doc_id = result.document.id
+                        weighted_score = result.score * strategy_weight
+                        
+                        if doc_id in combined_results:
+                            # Update existing entry
+                            existing = combined_results[doc_id]
+                            existing["score"] += weighted_score
+                            existing["strategies"].append(result.strategy.value)
+                            existing["raw_scores"][result.strategy.value] = result.score
+                        else:
+                            # Create new entry
+                            combined_results[doc_id] = {
+                                "document": result.document,
+                                "score": weighted_score,
+                                "strategies": [result.strategy.value],
+                                "raw_scores": {result.strategy.value: result.score}
+                            }
+                
+                # Convert to retrieval results
+                results = []
+                for doc_id, data in combined_results.items():
+                    results.append(
+                        RetrievalResult(
+                            document=data["document"],
+                            score=min(data["score"], 1.0),  # Ensure score is <= 1.0
+                            retrieval_time=time.time() - start_time,
+                            source="ensemble",
+                            strategy=RetrievalStrategy.ENSEMBLE,
+                            confidence=min(data["score"], 1.0),
+                            metadata={
+                                "ensemble_search": True,
+                                "contributing_strategies": data["strategies"],
+                                "raw_scores": data["raw_scores"]
+                            }
+                        )
+                    )
+                
+                # Sort by score and limit to top_k
+                results.sort(key=lambda x: x.score, reverse=True)
+                results = results[:top_k]
+                
+                span.set_attribute("result_count", len(results))
+                return results
+                
+            except Exception as e:
+                span.set_status(Status(StatusCode.ERROR))
+                span.record_exception(e)
+                logger.error(
+                    "ensemble_search_error",
+                    error=str(e),
+                    query=query,
+                    exc_info=True
+                )
+                # Fall back to hybrid search if ensemble fails
+                logger.info("Falling back to hybrid search after ensemble search failure")
+                return await self._hybrid_search(query, filters, top_k)
 
-    async def _get_query_embedding(self, query: str) -> List[float]:
+    async def _generate_dense_embedding(self, text: str) -> List[float]:
+        """Generate dense embedding using a specialized model."""
+        # This would use a different model than the standard embedding model
+        # For now, we'll use the same method but in a real implementation
+        # this would use a different model or approach
+        return await self._generate_embedding(text)
+
+    async def _generate_embedding(self, text: str) -> List[float]:
         try:
             with self.embedding_time.labels(model=self.model_name, status="success").time():
                 # Tokenize and prepare input
                 inputs = self.tokenizer(
-                    query,
+                    text,
                     padding=True,
                     truncation=True,
                     max_length=512,
@@ -854,6 +1272,6 @@ class RetrievalManager:
                     
                 return embeddings[0].cpu().numpy().tolist()
         except Exception as e:
-            logger.error("embedding_generation_failed", error=str(e), query=query)
+            logger.error("embedding_generation_failed", error=str(e), query=text)
             self.embedding_errors.labels(model=self.model_name, error_type=type(e).__name__).inc()
             raise 

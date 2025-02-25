@@ -1271,62 +1271,177 @@ class DatabaseManager:
         """Check health of all database connections with enhanced monitoring."""
         return await self._health_monitor._check_health()
 
-    async def search_by_vector(
-        self,
-        query_vector: List[float],
-        index: str = "documents",
-        top_k: int = 5,
-        min_score: float = 0.7,
-        filters: Optional[Dict[str, Any]] = None
-    ) -> List[Dict[str, Any]]:
-        """
-        Search for documents using vector similarity.
-        """
+    async def _ensure_index_exists(self, index_name: str, vector_dim: int = 768):
+        """Ensure Elasticsearch index exists with proper mappings."""
         try:
-            with self.search_latency.labels(index=index, status="success").time():
-                # Prepare the search query with vector similarity
-                script_score = {
-                    "script_score": {
-                        "query": {"match_all": {}},
-                        "script": {
-                            "source": "cosineSimilarity(params.query_vector, 'embedding') + 1.0",
-                            "params": {"query_vector": query_vector}
+            # Check if index exists
+            exists = await self.es_client.indices.exists(index=index_name)
+            
+            if not exists:
+                # Create index with vector search capabilities
+                mappings = {
+                    "mappings": {
+                        "properties": {
+                            "content": {"type": "text"},
+                            "metadata": {"type": "object"},
+                            "embedding": {
+                                "type": "dense_vector",
+                                "dims": vector_dim,
+                                "index": True,
+                                "similarity": "cosine"
+                            },
+                            "created_at": {"type": "date"},
+                            "updated_at": {"type": "date"}
                         }
+                    },
+                    "settings": {
+                        "number_of_shards": 3,
+                        "number_of_replicas": 1,
+                        "refresh_interval": "1s"
                     }
                 }
+                
+                await self.es_client.indices.create(
+                    index=index_name,
+                    body=mappings
+                )
+                
+                logger.info(
+                    "elasticsearch_index_created",
+                    index=index_name,
+                    vector_dim=vector_dim
+                )
+                
+            return True
+            
+        except ElasticsearchException as e:
+            logger.error(
+                "elasticsearch_index_creation_failed",
+                index=index_name,
+                error=str(e),
+                exc_info=True
+            )
+            raise DatabaseError(
+                f"Failed to create Elasticsearch index {index_name}: {str(e)}",
+                "elasticsearch"
+            )
 
-                # Add filters if provided
-                if filters:
-                    bool_query = {"bool": {"must": [script_score]}}
-                    for field, value in filters.items():
-                        bool_query["bool"]["must"].append({"term": {field: value}})
-                    query = bool_query
-                else:
-                    query = script_score
-
+    async def search_by_vector(
+        self,
+        index: str,
+        vector: List[float],
+        vector_field: str = "embedding",
+        filters: Optional[Dict[str, Any]] = None,
+        top_k: int = 10,
+        min_score: float = 0.0
+    ) -> List[Document]:
+        """Search documents by vector similarity with enhanced error handling and validation."""
+        with self.tracer.start_as_current_span("search_by_vector") as span:
+            span.set_attribute("index", index)
+            span.set_attribute("top_k", top_k)
+            span.set_attribute("vector_field", vector_field)
+            
+            # Validate vector dimensions
+            vector_dim = len(vector)
+            span.set_attribute("vector_dim", vector_dim)
+            
+            # Ensure index exists with proper mapping
+            await self._ensure_index_exists(index, vector_dim)
+            
+            # Prepare query
+            query = {
+                "knn": {
+                    vector_field: {
+                        "vector": vector,
+                        "k": top_k,
+                        "num_candidates": top_k * 2
+                    }
+                }
+            }
+            
+            # Add filters if provided
+            if filters:
+                filter_clauses = []
+                for key, value in filters.items():
+                    if isinstance(value, list):
+                        filter_clauses.append({"terms": {f"metadata.{key}": value}})
+                    else:
+                        filter_clauses.append({"term": {f"metadata.{key}": value}})
+                
+                # Combine KNN with filters
+                query = {
+                    "bool": {
+                        "must": query,
+                        "filter": filter_clauses
+                    }
+                }
+            
+            try:
                 # Execute search
                 response = await self.es_client.search(
                     index=index,
                     body={
                         "query": query,
-                        "size": top_k,
-                        "min_score": min_score
+                        "_source": True,
+                        "size": top_k
                     }
                 )
-
-                # Process and return results
-                results = []
+                
+                # Process results
+                documents = []
                 for hit in response["hits"]["hits"]:
-                    doc = hit["_source"]
-                    doc["score"] = hit["_score"] - 1.0  # Adjust score back to cosine similarity range
-                    results.append(doc)
-
-                return results
-
-        except ElasticsearchException as e:
-            logger.error("vector_search_failed", error=str(e), index=index)
-            self.search_errors.labels(index=index, error_type=type(e).__name__).inc()
-            raise
+                    score = hit["_score"]
+                    if score >= min_score:
+                        source = hit["_source"]
+                        
+                        # Handle potential missing fields
+                        embedding = source.get(vector_field, [0.0] * vector_dim)
+                        
+                        # Ensure embedding has correct dimensions
+                        if len(embedding) != vector_dim:
+                            logger.warning(
+                                "vector_dimension_mismatch",
+                                expected=vector_dim,
+                                actual=len(embedding),
+                                doc_id=hit["_id"]
+                            )
+                            # Pad or truncate to match expected dimensions
+                            if len(embedding) < vector_dim:
+                                embedding = embedding + [0.0] * (vector_dim - len(embedding))
+                            else:
+                                embedding = embedding[:vector_dim]
+                        
+                        doc = Document(
+                            id=hit["_id"],
+                            content=source.get("content", ""),
+                            metadata={
+                                **source.get("metadata", {}),
+                                "score": score,
+                                "index": index
+                            },
+                            embedding=embedding,
+                            created_at=datetime.fromisoformat(source.get("created_at", datetime.utcnow().isoformat())),
+                            updated_at=datetime.fromisoformat(source.get("updated_at", datetime.utcnow().isoformat()))
+                        )
+                        documents.append(doc)
+                
+                span.set_attribute("result_count", len(documents))
+                return documents
+                
+            except ElasticsearchException as e:
+                span.set_status(Status(StatusCode.ERROR))
+                span.record_exception(e)
+                logger.error(
+                    "vector_search_failed",
+                    index=index,
+                    error=str(e),
+                    exc_info=True
+                )
+                raise QueryError(
+                    f"Vector search failed: {str(e)}",
+                    "vector_search",
+                    str(uuid.uuid4())
+                )
 
     async def index_document(
         self,
@@ -1351,37 +1466,6 @@ class DatabaseManager:
             
         except ElasticsearchException as e:
             logger.error("document_indexing_failed", error=str(e), index=index)
-            raise
-
-    async def _ensure_index_exists(self, index: str) -> None:
-        """
-        Ensure the index exists with proper mapping for vector search.
-        """
-        try:
-            # Check if index exists
-            if not await self.es_client.indices.exists(index=index):
-                # Create index with vector mapping
-                await self.es_client.indices.create(
-                    index=index,
-                    body={
-                        "mappings": {
-                            "properties": {
-                                "embedding": {
-                                    "type": "dense_vector",
-                                    "dims": 384,  # Dimension for all-MiniLM-L6-v2
-                                    "index": True,
-                                    "similarity": "cosine"
-                                },
-                                "text": {"type": "text"},
-                                "metadata": {"type": "object"}
-                            }
-                        }
-                    }
-                )
-                logger.info("created_vector_index", index=index)
-                
-        except ElasticsearchException as e:
-            logger.error("index_creation_failed", error=str(e), index=index)
             raise
 
  

@@ -11,7 +11,7 @@ from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field
 import structlog
 from contextlib import asynccontextmanager
 import signal

@@ -16,6 +16,28 @@ processors:
   resourcedetection:
     detectors: [env, system]
     timeout: 2s
+  filter:
+    metrics:
+      include:
+        match_type: regexp
+        metric_names:
+          - ".*rag.*"
+          - ".*retrieval.*"
+          - ".*generation.*"
+          - ".*database.*"
+          - ".*api.*"
+          - ".*security.*"
+  attributes:
+    actions:
+      - key: environment
+        value: "${ENVIRONMENT}"
+        action: upsert
+      - key: service.name
+        value: "rag-service"
+        action: upsert
+      - key: deployment.environment
+        value: "${ENVIRONMENT}"
+        action: upsert
 
 exporters:
   jaeger:
@@ -27,8 +49,20 @@ exporters:
     namespace: "rag"
     const_labels:
       service: "rag-service"
+      environment: "${ENVIRONMENT}"
+    send_timestamps: true
+    metric_expiration: 180m
+    resource_to_telemetry_conversion:
+      enabled: true
   logging:
     loglevel: debug
+    sampling_initial: 5
+    sampling_thereafter: 200
+  otlphttp:
+    endpoint: "https://api.honeycomb.io"
+    headers:
+      "x-honeycomb-team": "${HONEYCOMB_API_KEY}"
+      "x-honeycomb-dataset": "rag-service"
 
 extensions:
   health_check:
@@ -43,9 +77,15 @@ service:
   pipelines:
     traces:
       receivers: [otlp]
-      processors: [memory_limiter, batch, resourcedetection]
-      exporters: [jaeger, logging]
+      processors: [memory_limiter, batch, resourcedetection, attributes]
+      exporters: [jaeger, otlphttp, logging]
     metrics:
       receivers: [otlp]
-      processors: [memory_limiter, batch, resourcedetection]
-      exporters: [prometheus, logging] 
+      processors: [memory_limiter, batch, resourcedetection, filter, attributes]
+      exporters: [prometheus, logging]
+  telemetry:
+    logs:
+      level: "debug"
+    metrics:
+      level: "detailed"
+      address: "0.0.0.0:8888" 

@@ -1,0 +1,83 @@
+groups:
+  - name: rag_service_alerts
+    rules:
+      - alert: HighErrorRate
+        expr: sum(rate(rag_service_requests_total{status="error"}[5m])) / sum(rate(rag_service_requests_total[5m])) > 0.05
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High error rate detected"
+          description: "Error rate is above 5% for the last 5 minutes"
+
+      - alert: HighLatency
+        expr: histogram_quantile(0.95, sum(rate(rag_service_request_duration_seconds_bucket[5m])) by (endpoint, le)) > 2
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High latency detected"
+          description: "95th percentile latency is above 2 seconds for endpoint {{ $labels.endpoint }}"
+
+      - alert: ServiceDown
+        expr: up{job="rag-service"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "RAG service is down"
+          description: "The RAG service has been down for more than 1 minute"
+
+      - alert: HighRetrievalLatency
+        expr: histogram_quantile(0.95, sum(rate(rag_service_retrieval_duration_seconds_bucket[5m])) by (strategy, le)) > 1
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High retrieval latency detected"
+          description: "95th percentile retrieval latency is above 1 second for strategy {{ $labels.strategy }}"
+
+      - alert: HighGenerationLatency
+        expr: histogram_quantile(0.95, sum(rate(rag_service_generation_duration_seconds_bucket[5m])) by (model, le)) > 3
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High generation latency detected"
+          description: "95th percentile generation latency is above 3 seconds for model {{ $labels.model }}"
+
+      - alert: LowCacheHitRate
+        expr: sum(rate(rag_service_cache_hits_total[5m])) / sum(rate(rag_service_cache_operations_total{operation="get"}[5m])) < 0.3
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Low cache hit rate detected"
+          description: "Cache hit rate is below 30% for the last 5 minutes"
+
+      - alert: HighDatabaseLatency
+        expr: histogram_quantile(0.95, sum(rate(rag_service_database_operation_duration_seconds_bucket[5m])) by (operation, le)) > 0.5
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High database latency detected"
+          description: "95th percentile database operation latency is above 0.5 seconds for operation {{ $labels.operation }}"
+
+      - alert: HighMemoryUsage
+        expr: process_resident_memory_bytes{job="rag-service"} / 1024 / 1024 > 1000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory usage detected"
+          description: "Memory usage is above 1GB for the RAG service"
+
+      - alert: HighCPUUsage
+        expr: rate(process_cpu_seconds_total{job="rag-service"}[5m]) > 0.8
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU usage detected"
+          description: "CPU usage is above 80% for the RAG service" 

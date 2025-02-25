@@ -2,6 +2,7 @@ telemetry:
   # OpenTelemetry Collector configuration
   otlp_enabled: true
   otlp_endpoint: "http://otel-collector:4317"
+  metric_export_interval_millis: 30000
   
   # Jaeger configuration
   jaeger_enabled: true
@@ -18,6 +19,7 @@ telemetry:
     deployment.environment: "development"
     service.namespace: "rag"
     service.instance.id: "${HOSTNAME}"
+    service.version: "${SERVICE_VERSION}"
   
   # Instrumentation configuration
   instrumentation:
@@ -29,10 +31,42 @@ telemetry:
       db_statement: true
     pymongo:
       db_statement: true
+    requests:
+      trace_all: true
+    aiohttp_client:
+      trace_all: true
   
   # Batch processor configuration
   batch_processor:
     max_queue_size: 2048
     schedule_delay_millis: 5000
     max_export_batch_size: 512
-    export_timeout_millis: 30000 
+    export_timeout_millis: 30000
+  
+  # Propagation configuration
+  propagation:
+    enabled: true
+    formats: ["tracecontext", "baggage", "b3"]
+  
+  # Metrics configuration
+  metrics:
+    enabled: true
+    export_interval_millis: 30000
+    histogram_boundaries: [0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1, 2.5, 5, 7.5, 10]
+    views:
+      - name: "http.server.duration"
+        description: "HTTP server duration"
+        aggregation: "histogram"
+        instrument_name: "http.server.duration"
+      - name: "db.client.duration"
+        description: "Database client duration"
+        aggregation: "histogram"
+        instrument_name: "db.client.duration"
+      - name: "rag.retrieval.duration"
+        description: "RAG retrieval duration"
+        aggregation: "histogram"
+        instrument_name: "rag.retrieval.duration"
+      - name: "rag.generation.duration"
+        description: "RAG generation duration"
+        aggregation: "histogram"
+        instrument_name: "rag.generation.duration" 

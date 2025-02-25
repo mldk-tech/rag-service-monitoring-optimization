@@ -16,16 +16,35 @@ services:
       - PYTHONPATH=/app
       - PYTHONUNBUFFERED=1
       - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL}
       - SMTP_USER=${SMTP_USER}
       - SMTP_PASSWORD=${SMTP_PASSWORD}
       - RAG_CONFIG_PATH=/app/config/config.yaml
+      - MILVUS_HOST=milvus
+      - MILVUS_PORT=19530
+      - WEAVIATE_URL=http://weaviate:8080
+      - NEO4J_URI=neo4j://neo4j:7687
+      - NEO4J_USERNAME=${NEO4J_USERNAME:-neo4j}
+      - NEO4J_PASSWORD=${NEO4J_PASSWORD:-password}
+      - MEMCACHED_HOST=memcached
+      - MEMCACHED_PORT=11211
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317
+      - OTEL_RESOURCE_ATTRIBUTES=service.name=rag-service,deployment.environment=development
     depends_on:
       elasticsearch:
         condition: service_healthy
       mongodb:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      milvus:
+        condition: service_healthy
+      weaviate:
+        condition: service_healthy
+      neo4j:
+        condition: service_healthy
+      memcached:
         condition: service_healthy
       jaeger:
         condition: service_started
@@ -37,6 +56,7 @@ services:
       timeout: 30s
       retries: 3
       start_period: 5s
+    restart: unless-stopped
 
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.11.1
@@ -57,6 +77,7 @@ services:
       timeout: 30s
       retries: 3
       start_period: 40s
+    restart: unless-stopped
 
   mongodb:
     image: mongo:6.0
@@ -76,6 +97,7 @@ services:
       timeout: 30s
       retries: 3
       start_period: 30s
+    restart: unless-stopped
 
   redis:
     image: redis:7.2-alpine
@@ -93,6 +115,148 @@ services:
       timeout: 30s
       retries: 3
       start_period: 5s
+    restart: unless-stopped
+
+  # Vector Database - Milvus
+  milvus:
+    image: milvusdb/milvus:v2.3.3
+    container_name: rag_milvus_dev
+    command: ["milvus", "run", "standalone"]
+    environment:
+      - ETCD_ENDPOINTS=etcd:2379
+      - MINIO_ADDRESS=minio:9000
+    volumes:
+      - milvus_data_dev:/var/lib/milvus
+    ports:
+      - "19530:19530"
+      - "9091:9091"
+    networks:
+      - rag_network_dev
+    depends_on:
+      - etcd
+      - minio
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+      interval: 30s
+      timeout: 30s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.5
+    container_name: rag_etcd_dev
+    environment:
+      - ETCD_AUTO_COMPACTION_MODE=revision
+      - ETCD_AUTO_COMPACTION_RETENTION=1000
+      - ETCD_QUOTA_BACKEND_BYTES=4294967296
+      - ETCD_SNAPSHOT_COUNT=50000
+    volumes:
+      - etcd_data_dev:/etcd
+    command:
+      - etcd
+      - --advertise-client-urls=http://127.0.0.1:2379
+      - --listen-client-urls=http://0.0.0.0:2379
+      - --data-dir=/etcd
+    networks:
+      - rag_network_dev
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio:RELEASE.2023-11-20T22-40-07Z
+    container_name: rag_minio_dev
+    environment:
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin
+    volumes:
+      - minio_data_dev:/data
+    command: minio server /data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    networks:
+      - rag_network_dev
+    restart: unless-stopped
+
+  # Vector Database - Weaviate
+  weaviate:
+    image: semitechnologies/weaviate:1.23.7
+    container_name: rag_weaviate_dev
+    ports:
+      - "8080:8080"
+    environment:
+      - QUERY_DEFAULTS_LIMIT=20
+      - AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true
+      - PERSISTENCE_DATA_PATH=/var/lib/weaviate
+      - DEFAULT_VECTORIZER_MODULE=text2vec-transformers
+      - ENABLE_MODULES=text2vec-transformers
+      - TRANSFORMERS_INFERENCE_API=http://t2v-transformers:8080
+    volumes:
+      - weaviate_data_dev:/var/lib/weaviate
+    networks:
+      - rag_network_dev
+    depends_on:
+      - t2v-transformers
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/v1/.well-known/ready"]
+      interval: 30s
+      timeout: 30s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+
+  t2v-transformers:
+    image: semitechnologies/transformers-inference:sentence-transformers-all-mpnet-base-v2
+    container_name: rag_t2v_transformers_dev
+    environment:
+      - ENABLE_CUDA=0
+    networks:
+      - rag_network_dev
+    restart: unless-stopped
+
+  # Graph Database - Neo4j
+  neo4j:
+    image: neo4j:5.13
+    container_name: rag_neo4j_dev
+    ports:
+      - "7474:7474"  # HTTP
+      - "7687:7687"  # Bolt
+    environment:
+      - NEO4J_AUTH=${NEO4J_USERNAME:-neo4j}/${NEO4J_PASSWORD:-password}
+      - NEO4J_dbms_memory_pagecache_size=256M
+      - NEO4J_dbms.memory.heap.initial_size=512M
+      - NEO4J_dbms_memory_heap_max__size=512M
+    volumes:
+      - neo4j_data_dev:/data
+      - neo4j_logs_dev:/logs
+    networks:
+      - rag_network_dev
+    healthcheck:
+      test: ["CMD", "wget", "-O", "/dev/null", "-q", "http://localhost:7474"]
+      interval: 30s
+      timeout: 30s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+
+  # Additional Cache Layer - Memcached
+  memcached:
+    image: memcached:1.6-alpine
+    container_name: rag_memcached_dev
+    ports:
+      - "11211:11211"
+    command: memcached -m 128
+    networks:
+      - rag_network_dev
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "11211"]
+      interval: 30s
+      timeout: 30s
+      retries: 3
+      start_period: 5s
+    restart: unless-stopped
 
   jaeger:
     image: jaegertracing/all-in-one:1.50
@@ -105,6 +269,7 @@ services:
       - "16686:16686" # UI
     networks:
       - rag_network_dev
+    restart: unless-stopped
 
   prometheus:
     image: prom/prometheus:v2.48.0
@@ -121,6 +286,7 @@ services:
       - "9091:9090"
     networks:
       - rag_network_dev
+    restart: unless-stopped
 
   grafana:
     image: grafana/grafana:10.2.2
@@ -136,6 +302,23 @@ services:
       - "3000:3000"
     networks:
       - rag_network_dev
+    restart: unless-stopped
+
+  # Development Tools - Jupyter Notebook
+  jupyter:
+    image: jupyter/datascience-notebook:latest
+    container_name: rag_jupyter_dev
+    volumes:
+      - ./notebooks:/home/jovyan/work
+      - ./rag_service:/home/jovyan/rag_service
+    ports:
+      - "8888:8888"
+    environment:
+      - JUPYTER_ENABLE_LAB=yes
+    command: "start-notebook.sh --NotebookApp.token='rag-dev'"
+    networks:
+      - rag_network_dev
+    restart: unless-stopped
 
 networks:
   rag_network_dev:
@@ -146,4 +329,10 @@ volumes:
   mongodb_data_dev:
   redis_data_dev:
   prometheus_data_dev:
-  grafana_data_dev: 
+  grafana_data_dev:
+  milvus_data_dev:
+  etcd_data_dev:
+  minio_data_dev:
+  weaviate_data_dev:
+  neo4j_data_dev:
+  neo4j_logs_dev: 
